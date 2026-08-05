@@ -12,7 +12,9 @@
     
     let handledObjectives = new Set();
     let recentCompletions = new Set();
+    let grayObjectives = new Set();
     let trigger = 0;
+    let firstRun = true;
     
     $: {
         if (mission && mission.objectives) {
@@ -21,18 +23,25 @@
                     if (!handledObjectives.has(obj.objectiveId)) {
                         handledObjectives.add(obj.objectiveId);
                         
-                        // Delay the flash so scroll has time to reach it
-                        setTimeout(() => {
-                            recentCompletions.add(obj.objectiveId);
-                            trigger += 1;
+                        if (firstRun) {
+                            grayObjectives.add(obj.objectiveId);
+                        } else {
                             setTimeout(() => {
-                                recentCompletions.delete(obj.objectiveId);
+                                recentCompletions.add(obj.objectiveId);
                                 trigger += 1;
-                            }, 1500); // 1.5 second flash
-                        }, 2000); // 2 second delay
+                                setTimeout(() => {
+                                    recentCompletions.delete(obj.objectiveId);
+                                    grayObjectives.add(obj.objectiveId);
+                                    trigger += 1;
+                                }, 1500);
+                            }, 2000);
+                        }
                     }
+                } else {
+                    grayObjectives.delete(obj.objectiveId);
                 }
             });
+            firstRun = false;
         }
     }
 
@@ -90,7 +99,7 @@
     
     <div class="objectives-list">
         {#each sortedObjectives as obj}
-            <div class="objective" class:done={obj.status?.Case === 'Completed'} class:flash-obj={recentCompletions.has(obj.objectiveId)}>
+            <div class="objective" class:done={grayObjectives.has(obj.objectiveId)} class:flash-obj={recentCompletions.has(obj.objectiveId)}>
                 {#if obj.status?.Case === 'Completed'}
                     <CheckCircle2 size={14} class="obj-icon done" />
                 {:else}
