@@ -6,13 +6,14 @@
 
     $: isHaul = mission.missionType?.Case !== 'Courier';
     $: iconColor = isHaul ? 'var(--accent-warning)' : 'var(--accent-cyan)';
-    $: completedCount = mission.objectives.filter(o => o.status?.Case === 'Completed').length;
     $: totalCount = mission.objectives.length;
-    $: progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+    $: displayedCompletedCount = mission.objectives.filter(o => delayedCompleted.has(o.objectiveId)).length;
+    $: progress = totalCount > 0 ? (displayedCompletedCount / totalCount) * 100 : 0;
     
     let handledObjectives = new Set();
     let recentCompletions = new Set();
     let grayObjectives = new Set();
+    let delayedCompleted = new Set();
     let trigger = 0;
     let firstRun = true;
     
@@ -24,9 +25,11 @@
                         handledObjectives.add(obj.objectiveId);
                         
                         if (firstRun) {
+                            delayedCompleted.add(obj.objectiveId);
                             grayObjectives.add(obj.objectiveId);
                         } else {
                             setTimeout(() => {
+                                delayedCompleted.add(obj.objectiveId);
                                 recentCompletions.add(obj.objectiveId);
                                 trigger += 1;
                                 setTimeout(() => {
@@ -38,6 +41,7 @@
                         }
                     }
                 } else {
+                    delayedCompleted.delete(obj.objectiveId);
                     grayObjectives.delete(obj.objectiveId);
                 }
             });
@@ -90,7 +94,7 @@
     <div class="progress-container">
         <div class="progress-info">
             <span class="progress-text">Objectives</span>
-            <span class="progress-numbers">{completedCount} / {totalCount}</span>
+            <span class="progress-numbers">{displayedCompletedCount} / {totalCount}</span>
         </div>
         <div class="progress-bar">
             <div class="progress-fill" style="width: {progress}%"></div>
@@ -100,7 +104,7 @@
     <div class="objectives-list">
         {#each sortedObjectives as obj}
             <div class="objective" class:done={grayObjectives.has(obj.objectiveId)} class:flash-obj={recentCompletions.has(obj.objectiveId)}>
-                {#if obj.status?.Case === 'Completed'}
+                {#if delayedCompleted.has(obj.objectiveId)}
                     <CheckCircle2 size={14} class="obj-icon done" />
                 {:else}
                     <CircleDashed size={14} class="obj-icon" />
