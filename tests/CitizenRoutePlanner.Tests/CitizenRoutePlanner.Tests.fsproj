@@ -10,7 +10,15 @@
 
   <ItemGroup>
     <Compile Include="LogParserTests.fs" />
+    <Compile Include="LocationResolverTests.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\locations-positions.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>locations-positions.json</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
