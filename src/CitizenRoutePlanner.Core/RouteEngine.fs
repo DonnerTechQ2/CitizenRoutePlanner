@@ -233,6 +233,7 @@ module RouteEngine =
                 route.Add(bestNode)
                 if bestNode.IsPickup then pickedUp.Add(bestNode.MissionId) |> ignore
                 cargo <- if bestNode.IsPickup then cargo + bestNode.Scu else cargo - bestNode.Scu
+                if cargo < 0 then cargo <- 0
                 currentLoc <- Some bestNode.Location
                 remaining <- remaining |> List.filter (fun x -> x <> bestNode)
                 
@@ -266,6 +267,7 @@ module RouteEngine =
                     else
                         if node.IsPickup then pUp.Add(node.MissionId) |> ignore
                         c <- if node.IsPickup then c + node.Scu else c - node.Scu
+                        if c < 0 then c <- 0
                         if c > capacity then valid <- false
                         else
                             let time = match lastLoc with | Some l -> estimateTravelTime l node.Location locations | None -> 0.0
