@@ -12,6 +12,7 @@
     <Compile Include="LogParserTests.fs" />
     <Compile Include="LocationResolverTests.fs" />
     <Compile Include="MissionManagerTests.fs" />
+    <Compile Include="RouteEngineTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
