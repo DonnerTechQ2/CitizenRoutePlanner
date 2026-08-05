@@ -28,3 +28,6 @@ type RouteHub(appStateService: AppStateService) =
 
     member this.SetShipCapacity(scu: int) =
         appStateService.UpdateCapacity(scu)
+
+    member this.SetShipSpeedModifier(modf: float) =
+        appStateService.UpdateSpeedModifier(modf)

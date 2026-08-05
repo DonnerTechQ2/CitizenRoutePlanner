@@ -13,6 +13,7 @@ open CitizenRoutePlanner.Api.Hubs
 type WatcherMessage =
     | LogEvent of LogParser.LogEvent
     | CapacityChanged of int
+    | SpeedModifierChanged of float
     | DebugLine of string
 
 type LogWatcherService(
@@ -49,7 +50,7 @@ type LogWatcherService(
 
     let agent = MailboxProcessor<WatcherMessage>.Start(fun inbox ->
         let rec loop (pendingRecalc: bool) (baseState: AppState option) = async {
-            let timeout = if pendingRecalc then 500 else -1
+            let timeout = if pendingRecalc then 10 else -1
             let! msgOpt = inbox.TryReceive(timeout)
             try
                 match msgOpt with
@@ -70,7 +71,14 @@ type LogWatcherService(
                                     stateChanged <- true
                                     { currentState with ShipCapacityScu = scu }
                                 else currentState
+                            | SpeedModifierChanged modf ->
+                                if currentState.ShipSpeedModifier <> modf then
+                                    stateChanged <- true
+                                    { currentState with ShipSpeedModifier = modf }
+                                else currentState
                             | DebugLine line ->
+                                appStateService.SetConnectionStatus("Simulating...")
+                                hubContext.Clients.All.SendAsync("ConnectionStatus", {| logPath = "Simulating..." |}) |> ignore
                                 match LogParser.parseLine line with
                                 | Some ev -> 
                                     stateChanged <- true
@@ -127,6 +135,7 @@ type LogWatcherService(
                 logger.LogWarning($"Could not find locations-positions.json at {actualPath}")
 
             appStateService.CapacityChanged.Add(fun scu -> agent.Post(CapacityChanged scu))
+            appStateService.SpeedModifierChanged.Add(fun modf -> agent.Post(SpeedModifierChanged modf))
             appStateService.DebugLogLine.Add(fun line -> agent.Post(DebugLine line))
 
             // Polling loop for Game.log
@@ -135,7 +144,7 @@ type LogWatcherService(
                 | Some path when File.Exists(path) ->
                     logger.LogInformation($"Found Game.log at: {path}")
                     appStateService.SetConnectionStatus("Connected")
-                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", "Connected")
+                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", {| logPath = "Connected" |})
                     
                     let tailer = new LogParser.LogTailer(path)
                     logTailer <- Some tailer
@@ -150,11 +159,11 @@ type LogWatcherService(
                     tailer.Stop()
                     logTailer <- None
                     appStateService.SetConnectionStatus("Game.log not found")
-                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", "Game.log not found")
+                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", {| logPath = "Waiting for Game.log" |})
                 | _ ->
                     logger.LogWarning("Game.log not found. Waiting for game to start...")
                     appStateService.SetConnectionStatus("Game.log not found")
-                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", "Game.log not found")
+                    do! hubContext.Clients.All.SendAsync("ConnectionStatus", {| logPath = "Waiting for Game.log" |})
                     try
                         do! Task.Delay(5000, stoppingToken)
                     with :? TaskCanceledException -> ()

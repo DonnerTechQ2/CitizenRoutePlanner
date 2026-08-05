@@ -13,6 +13,7 @@ let main args =
 
     builder.Services.AddSignalR()
         .AddJsonProtocol(fun options ->
+            options.PayloadSerializerOptions.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
             options.PayloadSerializerOptions.Converters.Add(System.Text.Json.Serialization.JsonFSharpConverter())
         ) |> ignore
     builder.Services.AddSingleton<AppStateService>() |> ignore
@@ -49,6 +50,11 @@ let main args =
             return Results.Ok()
         }
     )) |> ignore
+
+    let lifetime = app.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>()
+#if WINDOWS
+    CitizenRoutePlanner.Api.TrayIcon.run app lifetime
+#endif
 
     app.Run()
 

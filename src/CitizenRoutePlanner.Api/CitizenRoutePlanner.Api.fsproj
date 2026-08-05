@@ -1,13 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' == 'true' ">net8.0-windows</TargetFramework>
+    <TargetFramework Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' != 'true' ">net8.0</TargetFramework>
+    <UseWindowsForms Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' == 'true' ">true</UseWindowsForms>
+    <DefineConstants Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' == 'true' ">$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
-
   <ItemGroup>
     <Compile Include="Services/AppStateService.fs" />
     <Compile Include="Hubs/RouteHub.fs" />
     <Compile Include="Services/LogWatcherService.fs" />
+    <Compile Include="TrayIcon.fs" Condition=" '$(WINDOWS)' == 'true' Or '$(TargetFramework)' == 'net8.0-windows' " />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
