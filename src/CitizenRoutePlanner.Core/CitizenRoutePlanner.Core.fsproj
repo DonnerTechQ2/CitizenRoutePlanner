@@ -10,6 +10,7 @@
     <Compile Include="LogParser.fs" />
     <Compile Include="LocationResolver.fs" />
     <Compile Include="MissionManager.fs" />
+    <Compile Include="RouteEngine.fs" />
   </ItemGroup>
 
 </Project>
