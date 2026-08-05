@@ -14,7 +14,10 @@ type LocationInfo = {
     Position: Coordinates        // Абсолютные координаты
 }
 
-type ObjectiveType = Pickup | Dropoff
+type ObjectiveType =
+    | Pickup
+    | Dropoff
+    | Nav
 
 type ObjectiveStatus = Pending | InProgress | Completed
 
@@ -62,11 +65,13 @@ type RouteAction =
     | DropoffCargo of missionId: Guid * objectiveId: string * scuAmount: int option * cargoType: string option
     | PickupPackage of missionId: Guid * objectiveId: string
     | DropoffPackage of missionId: Guid * objectiveId: string
+    | NavTo of missionId: Guid * objectiveId: string
 
 type RouteStop = {
     Location: LocationInfo
     Actions: RouteAction list
     TravelTimeEstimate: float    // Примерное время перелёта от предыдущей точки (секунды)
+    ActionTimeEstimate: float    // Примерное время на выполнение действий в точке (секунды)
 }
 
 type Route = {
@@ -82,4 +87,5 @@ type AppState = {
     QuantumDestination: LocationInfo option
     ShipCapacityScu: int
     CurrentCargoScu: int
+    ShipSpeedModifier: float
 }
