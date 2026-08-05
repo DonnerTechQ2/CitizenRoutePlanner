@@ -51,6 +51,7 @@ type Mission = {
     MissionType: MissionType
     Scope: MissionScope
     Objectives: MissionObjective list
+    PendingObjectivesData: (ObjectiveType option * int option * string option * string option) list
     Status: MissionStatus
     AcceptedAt: DateTimeOffset
 }
@@ -78,6 +79,7 @@ type AppState = {
     Missions: Map<Guid, Mission>
     CurrentRoute: Route option
     PlayerLocation: LocationInfo option
+    QuantumDestination: LocationInfo option
     ShipCapacityScu: int
     CurrentCargoScu: int
 }

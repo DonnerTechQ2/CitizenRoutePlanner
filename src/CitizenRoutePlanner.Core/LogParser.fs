@@ -12,8 +12,10 @@ module LogParser =
     type LogEvent =
         | ContractAccepted of timestamp: DateTimeOffset * missionId: Guid * title: string
         | ContractCompleted of timestamp: DateTimeOffset * missionId: Guid * title: string
+        | ContractFailed of timestamp: DateTimeOffset * missionId: Guid * title: string
+        | ContractAbandoned of timestamp: DateTimeOffset * missionId: Guid * title: string
         | ObjectiveMarkerCreated of timestamp: DateTimeOffset * missionId: Guid * generatorName: string * contractName: string * contractDefId: Guid * objectiveId: string * objectiveType: ObjectiveType * zoneHostId: uint64 * position: Coordinates
-        | NewObjective of timestamp: DateTimeOffset * missionId: Guid * objectiveId: string option * scuCurrent: int option * scuTotal: int option * cargoType: string option * destinationName: string option
+        | NewObjective of timestamp: DateTimeOffset * missionId: Guid * objectiveId: string option * targetObjectiveTypeHint: ObjectiveType option * scuCurrent: int option * scuTotal: int option * cargoType: string option * destinationName: string option
         | ObjectiveStateChanged of timestamp: DateTimeOffset * missionId: Guid * objectiveId: string * state: ObjectiveStatus
         | QuantumRouteCalculated of timestamp: DateTimeOffset * startLocation: string * destination: string
         | QuantumArrived of timestamp: DateTimeOffset
@@ -67,6 +69,22 @@ module LogParser =
             else None
         else None
 
+    let parseContractFailed (line: string) (ts: DateTimeOffset) =
+        if line.Contains("Contract Failed:") then
+            let m = Regex.Match(line, @"Contract Failed:\s*(.*?)(?:\s*:\s*)?""\s*\[\d+\].*?MissionId:\s*\[([0-9a-fA-F-]+)\]")
+            if m.Success then
+                Some (ContractFailed (ts, Guid.Parse(m.Groups.[2].Value), m.Groups.[1].Value.Trim()))
+            else None
+        else None
+
+    let parseContractAbandoned (line: string) (ts: DateTimeOffset) =
+        if line.Contains("Contract Abandoned:") || line.Contains("Contract Cancelled:") then
+            let m = Regex.Match(line, @"Contract (?:Abandoned|Cancelled):\s*(.*?)(?:\s*:\s*)?""\s*\[\d+\].*?MissionId:\s*\[([0-9a-fA-F-]+)\]")
+            if m.Success then
+                Some (ContractAbandoned (ts, Guid.Parse(m.Groups.[2].Value), m.Groups.[1].Value.Trim()))
+            else None
+        else None
+
     let parseObjectiveMarker (line: string) (ts: DateTimeOffset) =
         if line.Contains("Creating objective marker:") then
             let m = Regex.Match(line, @"Creating objective marker: missionId \[([0-9a-fA-F-]+)\], generator name \[([^\]]+)\], contract \[([^\]]+)\].*?contractDefinitionId\[([0-9a-fA-F-]+)\].*?objectiveId \[(pickup|dropoff)_([a-zA-Z0-9-_]+)\].*?zoneHostId \[(\d+)\], position \[x: ([-\d.]+), y: ([-\d.]+), z: ([-\d.]+)\]")
@@ -89,20 +107,42 @@ module LogParser =
         else None
 
     let parseNewObjective (line: string) (ts: DateTimeOffset) =
-        if line.Contains("New Objective: Deliver") then
-            let m = Regex.Match(line, @"New Objective: Deliver (\d+)/(\d+) SCU of (.*?) to (.*?)(?:\s*:\s*)?"".*?MissionId:\s*\[([0-9a-fA-F-]+)\]")
-            if m.Success then
+        if line.Contains("New Objective:") then
+            let mIdMatch = Regex.Match(line, @"MissionId:\s*\[([0-9a-fA-F-]+)\]")
+            if mIdMatch.Success then
+                let mId = Guid.Parse(mIdMatch.Groups.[1].Value)
+                
                 let objIdMatch = Regex.Match(line, @"ObjectiveId:\s*\[([^\]]+)\]")
                 let objId = if objIdMatch.Success && not (String.IsNullOrWhiteSpace(objIdMatch.Groups.[1].Value)) then Some objIdMatch.Groups.[1].Value else None
-                Some (NewObjective (
-                    ts,
-                    Guid.Parse(m.Groups.[5].Value),
-                    objId,
-                    Some (int m.Groups.[1].Value),
-                    Some (int m.Groups.[2].Value),
-                    Some (m.Groups.[3].Value.Trim()),
-                    Some (m.Groups.[4].Value.Trim())
-                ))
+
+                let mCargo = Regex.Match(line, @"New Objective: Deliver (\d+)/(\d+) SCU of (.*?) to (.*?)(?:\s*:\s*)?""")
+                if mCargo.Success then
+                    Some (NewObjective (
+                        ts, mId, objId, Some Dropoff,
+                        Some (int mCargo.Groups.[1].Value),
+                        Some (int mCargo.Groups.[2].Value),
+                        Some (mCargo.Groups.[3].Value.Trim()),
+                        Some (mCargo.Groups.[4].Value.Trim())
+                    ))
+                else
+                    let mDeliver = Regex.Match(line, @"New Objective: Deliver (.*?) To (.*?)(?:\s*:\s*)?""")
+                    if mDeliver.Success then
+                        Some (NewObjective (
+                            ts, mId, objId, Some Dropoff,
+                            None, None,
+                            Some (mDeliver.Groups.[1].Value.Trim()),
+                            Some (mDeliver.Groups.[2].Value.Trim())
+                        ))
+                    else
+                        let mCollect = Regex.Match(line, @"New Objective: Collect (.*?) From (.*?)(?:\s*:\s*)?""")
+                        if mCollect.Success then
+                            Some (NewObjective (
+                                ts, mId, objId, Some Pickup,
+                                None, None,
+                                Some (mCollect.Groups.[1].Value.Trim()),
+                                Some (mCollect.Groups.[2].Value.Trim())
+                            ))
+                        else None
             else None
         else None
 
@@ -146,6 +186,8 @@ module LogParser =
         let parsers = [
             parseContractAccepted
             parseContractCompleted
+            parseContractFailed
+            parseContractAbandoned
             parseObjectiveMarker
             parseNewObjective
             parseObjectiveUpserted

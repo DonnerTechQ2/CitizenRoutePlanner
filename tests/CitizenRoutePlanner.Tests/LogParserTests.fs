@@ -54,12 +54,45 @@ module LogParserTests =
         let result = LogParser.parseNewObjective line ts
         Assert.True(result.IsSome)
         match result.Value with
-        | LogParser.LogEvent.NewObjective(_, mId, objId, scuCur, scuTot, cargoType, destName) ->
+        | LogParser.LogEvent.NewObjective(_, mId, objId, typeHint, scuCur, scuTot, cargoType, destName) ->
             Assert.Equal("f2a4d319-9c55-48f6-bee0-89d9c10d8622", mId.ToString())
+            Assert.Equal(Some Dropoff, typeHint)
             Assert.Equal(Some 8, scuTot)
             Assert.Equal(Some "Processed_Mixed", cargoType)
             Assert.Equal(Some "ArcCorp Mining Area 141", destName)
             Assert.Equal(None, objId)
+        | _ -> Assert.Fail("Wrong event type")
+
+    [<Fact>]
+    let ``Parse New Objective Courier Collect`` () =
+        let line = """<2026-08-05T03:37:02.600Z> [Notice] <SHUDEvent_OnNotification> Added notification "New Objective: Collect Chlorine From wreck site near MicroTech: " [20] to queue. New queue size: 2, MissionId: [e4cbdc40-ecc6-41b3-8462-038d9963602a], ObjectiveId: [pickup_c11891c4-4476-4192-be6e-0f5f43c7fc22_0]"""
+        let ts = DateTimeOffset.UtcNow
+        let result = LogParser.parseNewObjective line ts
+        Assert.True(result.IsSome)
+        match result.Value with
+        | LogParser.LogEvent.NewObjective(_, mId, objId, typeHint, scuCur, scuTot, cargoType, destName) ->
+            Assert.Equal("e4cbdc40-ecc6-41b3-8462-038d9963602a", mId.ToString())
+            Assert.Equal(Some Pickup, typeHint)
+            Assert.Equal(None, scuTot)
+            Assert.Equal(Some "Chlorine", cargoType)
+            Assert.Equal(Some "wreck site near MicroTech", destName)
+            Assert.Equal(Some "pickup_c11891c4-4476-4192-be6e-0f5f43c7fc22_0", objId)
+        | _ -> Assert.Fail("Wrong event type")
+
+    [<Fact>]
+    let ``Parse New Objective Courier Deliver`` () =
+        let line = """<2026-08-05T03:37:02.600Z> [Notice] <SHUDEvent_OnNotification> Added notification "New Objective: Deliver Chlorine To a Landing Pad Locker in New Babbage: " [21] to queue. New queue size: 3, MissionId: [e4cbdc40-ecc6-41b3-8462-038d9963602a], ObjectiveId: [dropoff_c11891c4-4476-4192-be6e-0f5f43c7fc22_0]"""
+        let ts = DateTimeOffset.UtcNow
+        let result = LogParser.parseNewObjective line ts
+        Assert.True(result.IsSome)
+        match result.Value with
+        | LogParser.LogEvent.NewObjective(_, mId, objId, typeHint, scuCur, scuTot, cargoType, destName) ->
+            Assert.Equal("e4cbdc40-ecc6-41b3-8462-038d9963602a", mId.ToString())
+            Assert.Equal(Some Dropoff, typeHint)
+            Assert.Equal(None, scuTot)
+            Assert.Equal(Some "Chlorine", cargoType)
+            Assert.Equal(Some "a Landing Pad Locker in New Babbage", destName)
+            Assert.Equal(Some "dropoff_c11891c4-4476-4192-be6e-0f5f43c7fc22_0", objId)
         | _ -> Assert.Fail("Wrong event type")
 
     [<Fact>]
@@ -147,7 +180,7 @@ module LogParserTests =
         if System.IO.File.Exists(path) then
             let lines = System.IO.File.ReadAllLines(path)
             let parsed = lines |> Array.choose (fun line -> LogParser.parseLine line)
-            Assert.Equal(263, parsed.Length)
+            Assert.Equal(268, parsed.Length)
 
     [<Fact>]
     let ``Integration Game2 log parses correctly`` () =
