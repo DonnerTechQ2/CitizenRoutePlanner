@@ -84,6 +84,7 @@ module RouteEngineTests =
             QuantumDestination = None
             ShipCapacityScu = 10
             CurrentCargoScu = 0
+            ShipSpeedModifier = 1.0
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -118,6 +119,7 @@ module RouteEngineTests =
             QuantumDestination = None
             ShipCapacityScu = 10
             CurrentCargoScu = 0
+            ShipSpeedModifier = 1.0
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -152,6 +154,7 @@ module RouteEngineTests =
             QuantumDestination = None
             ShipCapacityScu = 10
             CurrentCargoScu = 0
+            ShipSpeedModifier = 1.0
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -182,6 +185,7 @@ module RouteEngineTests =
             QuantumDestination = None
             ShipCapacityScu = 10
             CurrentCargoScu = 0
+            ShipSpeedModifier = 1.0
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations

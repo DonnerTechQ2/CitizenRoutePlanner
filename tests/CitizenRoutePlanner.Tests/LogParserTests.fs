@@ -180,7 +180,7 @@ module LogParserTests =
         if System.IO.File.Exists(path) then
             let lines = System.IO.File.ReadAllLines(path)
             let parsed = lines |> Array.choose (fun line -> LogParser.parseLine line)
-            Assert.Equal(268, parsed.Length)
+            Assert.Equal(285, parsed.Length)
 
     [<Fact>]
     let ``Integration Game2 log parses correctly`` () =
