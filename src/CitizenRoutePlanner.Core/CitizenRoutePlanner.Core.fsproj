@@ -9,6 +9,7 @@
     <Compile Include="Domain.fs" />
     <Compile Include="LogParser.fs" />
     <Compile Include="LocationResolver.fs" />
+    <Compile Include="MissionManager.fs" />
   </ItemGroup>
 
 </Project>
