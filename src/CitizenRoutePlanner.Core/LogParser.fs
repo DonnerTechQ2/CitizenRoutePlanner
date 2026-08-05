@@ -85,22 +85,41 @@ module LogParser =
             else None
         else None
 
+    let parseEndMission (line: string) (ts: DateTimeOffset) =
+        if line.Contains("<EndMission>") then
+            let m = Regex.Match(line, @"<EndMission> Ending mission for player\. MissionId\[([a-fA-F0-9\-]+)\].*?CompletionType\[([^\]]+)\]")
+            if m.Success then
+                let missionId = Guid.Parse(m.Groups.[1].Value)
+                match m.Groups.[2].Value.ToLowerInvariant() with
+                | "complete" -> Some (ContractCompleted (ts, missionId, ""))
+                | "fail" -> Some (ContractFailed (ts, missionId, ""))
+                | "abandon" -> Some (ContractAbandoned (ts, missionId, ""))
+                | _ -> None
+            else None
+        else None
+
     let parseObjectiveMarker (line: string) (ts: DateTimeOffset) =
         if line.Contains("Creating objective marker:") then
-            let m = Regex.Match(line, @"Creating objective marker: missionId \[([0-9a-fA-F-]+)\], generator name \[([^\]]+)\], contract \[([^\]]+)\].*?contractDefinitionId\[([0-9a-fA-F-]+)\].*?objectiveId \[(pickup|dropoff)_([a-zA-Z0-9-_]+)\].*?zoneHostId \[(\d+)\], position \[x: ([-\d.]+), y: ([-\d.]+), z: ([-\d.]+)\]")
+            let m = Regex.Match(line, @"Creating objective marker: missionId \[([0-9a-fA-F-]+)\], generator name \[([^\]]+)\], contract \[([^\]]+)\].*?contractDefinitionId\[([0-9a-fA-F-]+)\].*?objectiveId \[([a-zA-Z0-9-_]+)\].*?zoneHostId \[(\d+)\], position \[x: ([-\d.]+), y: ([-\d.]+), z: ([-\d.]+)\]")
             if m.Success then
-                let objType = if m.Groups.[5].Value = "pickup" then Pickup else Dropoff
                 let parseF (s: string) = Double.Parse(s, Globalization.CultureInfo.InvariantCulture)
-                let pos = { X = parseF m.Groups.[8].Value; Y = parseF m.Groups.[9].Value; Z = parseF m.Groups.[10].Value }
+                let pos = { X = parseF m.Groups.[7].Value; Y = parseF m.Groups.[8].Value; Z = parseF m.Groups.[9].Value }
+                let objIdStr = m.Groups.[5].Value
+                let objType = 
+                    if objIdStr.StartsWith("dropoff", StringComparison.OrdinalIgnoreCase) then Dropoff
+                    elif objIdStr.StartsWith("pickup", StringComparison.OrdinalIgnoreCase) then Pickup
+                    else Nav
+
                 Some (ObjectiveMarkerCreated (
                     ts, 
                     Guid.Parse(m.Groups.[1].Value), 
                     m.Groups.[2].Value, 
                     m.Groups.[3].Value, 
                     Guid.Parse(m.Groups.[4].Value),
-                    m.Groups.[5].Value + "_" + m.Groups.[6].Value,
+                    objIdStr,
                     objType,
-                    uint64 m.Groups.[7].Value,
+
+                    uint64 m.Groups.[6].Value,
                     pos
                 ))
             else None
@@ -142,7 +161,16 @@ module LogParser =
                                 Some (mCollect.Groups.[1].Value.Trim()),
                                 Some (mCollect.Groups.[2].Value.Trim())
                             ))
-                        else None
+                        else
+                            let mGoto = Regex.Match(line, @"New Objective: Go [tT]o (.*?)(?:\s*:\s*)?""")
+                            if mGoto.Success then
+                                Some (NewObjective (
+                                    ts, mId, objId, Some Nav,
+                                    None, None,
+                                    None,
+                                    Some (mGoto.Groups.[1].Value.Trim())
+                                ))
+                            else None
             else None
         else None
 
@@ -188,6 +216,7 @@ module LogParser =
             parseContractCompleted
             parseContractFailed
             parseContractAbandoned
+            parseEndMission
             parseObjectiveMarker
             parseNewObjective
             parseObjectiveUpserted
