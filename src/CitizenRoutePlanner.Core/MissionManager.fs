@@ -11,6 +11,7 @@ module MissionManager =
         QuantumDestination = None
         ShipCapacityScu = 0
         CurrentCargoScu = 0
+        ShipSpeedModifier = 1.0
     }
 
     let recalculateCargoScu (missions: Map<Guid, Mission>) =
@@ -137,7 +138,7 @@ module MissionManager =
                     | UnknownLocation _ -> None
 
                 let newObj = { existingObj with 
-                                Type = objType
+                                Type = existingObj.Type
                                 RawPosition = pos
                                 ZoneHostId = zoneHostId
                                 AbsolutePosition = absPosOptExisting |> Option.orElse existingObj.AbsolutePosition
@@ -272,7 +273,14 @@ module MissionManager =
                 let targetObjOpt = mission.Objectives |> List.tryFind (fun o -> o.ObjectiveId = objId)
                 let isNewCompletion = objStatus = ObjectiveStatus.Completed && (targetObjOpt |> Option.exists (fun o -> o.Status <> ObjectiveStatus.Completed))
 
-                let newObjs = mission.Objectives |> List.map (fun o -> if o.ObjectiveId = objId then { o with Status = objStatus } else o)
+                let newObjs = 
+                    mission.Objectives 
+                    |> List.map (fun o -> 
+                        if o.ObjectiveId = objId then { o with Status = objStatus }
+                        elif isNewCompletion && targetObjOpt.IsSome && targetObjOpt.Value.Type = Pickup && o.Type = Nav then
+                            { o with Status = ObjectiveStatus.Completed }
+                        else o
+                    )
                 let m = { mission with Objectives = newObjs }
                 let updatedMissions = Map.add missionId m state.Missions
 
