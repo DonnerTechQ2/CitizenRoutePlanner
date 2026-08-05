@@ -7,8 +7,8 @@
     $: isHaul = mission.missionType?.Case !== 'Courier';
     $: iconColor = isHaul ? 'var(--accent-warning)' : 'var(--accent-cyan)';
     $: totalCount = mission.objectives.length;
-    $: displayedCompletedCount = mission.objectives.filter(o => delayedCompleted.has(o.objectiveId)).length;
-    $: progress = totalCount > 0 ? (displayedCompletedCount / totalCount) * 100 : 0;
+    $: displayedCompletedCount = (trigger, mission.objectives.filter(o => delayedCompleted.has(o.objectiveId)).length);
+    $: progress = (trigger, totalCount > 0 ? (displayedCompletedCount / totalCount) * 100 : 0);
     
     let handledObjectives = new Set();
     let recentCompletions = new Set();
