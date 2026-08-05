@@ -28,3 +28,15 @@ pnpm-debug.log*
 
 # Data / Test Logs
 Game*.log
+
+# ASP.NET Core wwwroot (built frontend artifact)
+src/CitizenRoutePlanner.Api/wwwroot/
+
+# Output files / temporary logs
+*.txt
+
+# F# scratch / debug scripts
+*.fsx
+
+# Debug client scripts
+frontend/client_test.js
