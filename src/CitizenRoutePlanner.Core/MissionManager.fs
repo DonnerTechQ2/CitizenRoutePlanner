@@ -155,7 +155,7 @@ module MissionManager =
                     AbsolutePosition = absPosOpt
                     ResolvedLocation = locInfoOpt
                     ScuAmount = pendingScu
-                    CargoType = pendingCargo
+                    CargoType = pendingCargo |> Option.orElse (LogParser.extractCargoTypeFromContractName updatedMission2.ContractName)
                     DestinationName = pendingDest
                     Status = Pending
                 }
@@ -224,13 +224,32 @@ module MissionManager =
                         | InferredLocation (l, _, _) -> Some l
                         | UnknownLocation _ -> obj.ResolvedLocation
 
-                    let newObj = { obj with 
-                                    ScuAmount = if scuTot.IsSome then scuTot else obj.ScuAmount
-                                    CargoType = if cargoType.IsSome then cargoType else obj.CargoType
-                                    DestinationName = if destName.IsSome then destName else obj.DestinationName
+                    let suffix = 
+                        if objId.StartsWith("dropoff_") then objId.Substring(8)
+                        elif objId.StartsWith("pickup_") then objId.Substring(7)
+                        else objId
+
+                    let newObjs = 
+                        mission.Objectives |> List.map (fun o -> 
+                            let oSuffix = 
+                                if o.ObjectiveId.StartsWith("dropoff_") then o.ObjectiveId.Substring(8)
+                                elif o.ObjectiveId.StartsWith("pickup_") then o.ObjectiveId.Substring(7)
+                                else o.ObjectiveId
+
+                            if o.ObjectiveId = objId then
+                                { o with 
+                                    ScuAmount = if scuTot.IsSome then scuTot else o.ScuAmount
+                                    CargoType = if cargoType.IsSome then cargoType else o.CargoType
+                                    DestinationName = if destName.IsSome then destName else o.DestinationName
                                     AbsolutePosition = absPosOpt
                                     ResolvedLocation = locInfoOpt }
-                    let newObjs = mission.Objectives |> List.map (fun o -> if o.ObjectiveId = objId then newObj else o)
+                            elif oSuffix = suffix then
+                                { o with
+                                    ScuAmount = if scuTot.IsSome then scuTot else o.ScuAmount
+                                    CargoType = if cargoType.IsSome then cargoType else o.CargoType }
+                            else
+                                o
+                        )
                     let m = { mission with Objectives = newObjs }
                     { state with Missions = Map.add missionId m state.Missions }
                 | None ->
