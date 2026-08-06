@@ -14,7 +14,7 @@ open Microsoft.Extensions.DependencyInjection
 
 let getLocalIp () =
     try
-        use socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0)
+        use socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
         socket.Connect("8.8.8.8", 65530)
         let endPoint = socket.LocalEndPoint :?> IPEndPoint
         endPoint.Address.ToString()
@@ -54,7 +54,7 @@ let copyToClipboard text =
 let run (app: WebApplication) (appLifetime: Microsoft.Extensions.Hosting.IHostApplicationLifetime) =
     let t = new Thread(fun () ->
         try
-            Application.SetHighDpiMode(HighDpiMode.SystemAware)
+            Application.SetHighDpiMode(HighDpiMode.SystemAware) |> ignore
             Application.EnableVisualStyles()
             Application.SetCompatibleTextRenderingDefault(false)
 
