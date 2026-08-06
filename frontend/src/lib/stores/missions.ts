@@ -1,17 +1,40 @@
 import { writable } from 'svelte/store';
 import { connection, connectionStatus } from './connection';
+import { triggerUntrackWarningNotification } from './notifications';
 
 export const missions = writable<Map<string, any>>(new Map());
 export const hoveredMissionIds = writable<Set<string>>(new Set());
 
+let initialSyncDone = false;
+let syncTimer: any = null;
+
+connectionStatus.subscribe(status => {
+    if (status.state === 'Connected') {
+        if (syncTimer) clearTimeout(syncTimer);
+        syncTimer = setTimeout(() => {
+            initialSyncDone = true;
+        }, 1000);
+    } else {
+        initialSyncDone = false;
+    }
+});
+
 // SignalR Events for missions
 connection.on("MissionAdded", (mission: any) => {
+    let isNewMission = false;
     missions.update(m => {
+        if (!m.has(mission.missionId)) {
+            isNewMission = true;
+        }
         const newMap = new Map(m);
         newMap.set(mission.missionId, mission);
         return newMap;
     });
-    connectionStatus.update(s => ({ ...s, missionCount: s.missionCount + 1 }));
+
+    if (initialSyncDone && isNewMission) {
+        const title = mission.title || mission.contractName || undefined;
+        triggerUntrackWarningNotification(title);
+    }
 });
 
 connection.on("MissionUpdated", (mission: any) => {
@@ -28,5 +51,5 @@ connection.on("MissionRemoved", (missionId: string) => {
         newMap.delete(missionId);
         return newMap;
     });
-    connectionStatus.update(s => ({ ...s, missionCount: Math.max(0, s.missionCount - 1) }));
 });
+

@@ -5,11 +5,14 @@
     import MissionPanel from './lib/components/MissionPanel.svelte';
     import RoutePanel from './lib/components/RoutePanel.svelte';
     import StatusBar from './lib/components/StatusBar.svelte';
+    import ToastContainer from './lib/components/ToastContainer.svelte';
 
     onMount(() => {
         startConnection();
     });
 </script>
+
+<ToastContainer />
 
 <div class="unsupported-resolution">
     <div class="glass-panel message-box">
