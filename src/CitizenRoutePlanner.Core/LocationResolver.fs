@@ -58,6 +58,15 @@ module LocationResolver =
     let private isUninitializedName (name: string) =
         name.Contains("<= UNINITIALIZED =>")
 
+    let private normalizeName (name: string) =
+        let n = name.ToLowerInvariant()
+        // Convert "mic-l2" to "mic l2", but preserve things like "mic-l2 long forest station"
+        let m = System.Text.RegularExpressions.Regex.Match(n, @"^(mic|arc|hur|cru)-(l\d(?:-[a-z])?)$")
+        if m.Success then
+            m.Groups.[1].Value + " " + m.Groups.[2].Value
+        else
+            n
+
     /// Загружает locations-positions.json и строит все индексы.
     /// Принимает путь к файлу — чтобы тесты могли подставить реальный путь.
     let loadIndex (jsonPath: string) : LocationIndex =
@@ -106,17 +115,18 @@ module LocationResolver =
         let byName =
             all
             |> List.filter (fun l -> not (isUninitializedName l.Name))
-            |> List.map (fun l -> l.Name.ToLowerInvariant(), l)
+            |> List.map (fun l -> normalizeName l.Name, l)
             |> Map.ofList
 
         let planets  = all |> List.filter (fun l -> l.Type = "Planet")
         let moons    = all |> List.filter (fun l -> l.Type = "Moon")
+        let stars    = all |> List.filter (fun l -> l.Type = "Star")
 
         {
             All             = all
             ByUuid          = byUuid
             ByName          = byName
-            CelestialBodies = planets @ moons
+            CelestialBodies = stars @ planets @ moons
             Planets         = planets
             Moons           = moons
         }
@@ -164,7 +174,7 @@ module LocationResolver =
                     match Map.tryFind uuid index.ByUuid with
                     | None -> None
                     | Some parent ->
-                        if parent.Type = "Planet" || parent.Type = "Moon" then Some parent
+                        if parent.Type = "Planet" || parent.Type = "Moon" || parent.Type = "Star" then Some parent
                         else climb parent.ParentUuid
             climb location.ParentUuid
 

@@ -80,8 +80,8 @@ module LocationResolverTests =
 
     [<Fact>]
     [<Trait("Category", "LocationResolver")>]
-    let ``CelestialBodies contains 16 entries (4 planets + 12 moons)`` () =
-        Assert.Equal(16, idx().CelestialBodies.Length)
+    let ``CelestialBodies contains 17 entries (1 star + 4 planets + 12 moons)`` () =
+        Assert.Equal(17, idx().CelestialBodies.Length)
 
     [<Fact>]
     [<Trait("Category", "LocationResolver")>]
