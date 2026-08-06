@@ -2,10 +2,12 @@ namespace CitizenRoutePlanner.Core
 
 open System
 open System.IO
+open System.Text
 open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
 open System.Diagnostics
+open System.Runtime.InteropServices
 
 module LogParser =
 
@@ -43,6 +45,15 @@ module LogParser =
             System
         else
             System
+
+    let extractCargoTypeFromContractName (contractName: string) : string option =
+        let parts = contractName.Split('_')
+        if parts.Length >= 4 && contractName.StartsWith("HaulCargo_", StringComparison.OrdinalIgnoreCase) then
+            // Format is usually HaulCargo_Topology_Category_Item_Location_Grade
+            // e.g. HaulCargo_SingleToMulti3_Processed_Stims_Stanton4_SmallGrade1 -> Stims
+            Some parts.[3]
+        else
+            None
 
     let parseTimestamp (line: string) : DateTimeOffset =
         let m = Regex.Match(line, @"^<([^>]+)>")
@@ -126,7 +137,7 @@ module LogParser =
         else None
 
     let parseNewObjective (line: string) (ts: DateTimeOffset) =
-        if line.Contains("New Objective:") then
+        if line.Contains("New Objective:") || line.Contains("Objective Complete:") || line.Contains("Objective Updated:") then
             let mIdMatch = Regex.Match(line, @"MissionId:\s*\[([0-9a-fA-F-]+)\]")
             if mIdMatch.Success then
                 let mId = Guid.Parse(mIdMatch.Groups.[1].Value)
@@ -134,7 +145,7 @@ module LogParser =
                 let objIdMatch = Regex.Match(line, @"ObjectiveId:\s*\[([^\]]+)\]")
                 let objId = if objIdMatch.Success && not (String.IsNullOrWhiteSpace(objIdMatch.Groups.[1].Value)) then Some objIdMatch.Groups.[1].Value else None
 
-                let mCargo = Regex.Match(line, @"New Objective: Deliver (\d+)/(\d+) SCU of (.*?) to (.*?)(?:\s*:\s*)?""")
+                let mCargo = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Deliver (\d+)/(\d+) SCU of (.*?) [tT]o (.*?)(?:\s*:\s*)?""")
                 if mCargo.Success then
                     Some (NewObjective (
                         ts, mId, objId, Some Dropoff,
@@ -144,7 +155,7 @@ module LogParser =
                         Some (mCargo.Groups.[4].Value.Trim())
                     ))
                 else
-                    let mDeliver = Regex.Match(line, @"New Objective: Deliver (.*?) To (.*?)(?:\s*:\s*)?""")
+                    let mDeliver = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Deliver (.*?) [tT]o (.*?)(?:\s*:\s*)?""")
                     if mDeliver.Success then
                         Some (NewObjective (
                             ts, mId, objId, Some Dropoff,
@@ -153,7 +164,7 @@ module LogParser =
                             Some (mDeliver.Groups.[2].Value.Trim())
                         ))
                     else
-                        let mCollect = Regex.Match(line, @"New Objective: Collect (.*?) From (.*?)(?:\s*:\s*)?""")
+                        let mCollect = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Collect (.*?) [fF]rom (.*?)(?:\s*:\s*)?""")
                         if mCollect.Success then
                             Some (NewObjective (
                                 ts, mId, objId, Some Pickup,
@@ -162,7 +173,7 @@ module LogParser =
                                 Some (mCollect.Groups.[2].Value.Trim())
                             ))
                         else
-                            let mGoto = Regex.Match(line, @"New Objective: Go [tT]o (.*?)(?:\s*:\s*)?""")
+                            let mGoto = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Go [tT]o (.*?)(?:\s*:\s*)?""")
                             if mGoto.Success then
                                 Some (NewObjective (
                                     ts, mId, objId, Some Nav,
@@ -247,6 +258,7 @@ module LogParser =
                             fs.Seek(0L, SeekOrigin.End) |> ignore
                             
                             let sb = System.Text.StringBuilder()
+                            let mutable lastLine = ""
                             
                             while isRunning && not cts.IsCancellationRequested do
                                 let ch = reader.Read()
@@ -261,9 +273,18 @@ module LogParser =
                                     if c = '\n' then
                                         let line = sb.ToString().TrimEnd('\r')
                                         sb.Clear() |> ignore
-                                        match parseLine line with
+                                        
+                                        let mutable finalLine = line
+                                        if line.Contains("> : \" [") && not (String.IsNullOrEmpty lastLine) && lastLine.Contains("Added notification \"") then
+                                            let tsEnd = line.IndexOf("> ")
+                                            if tsEnd > 0 then
+                                                finalLine <- lastLine + line.Substring(tsEnd + 1)
+                                        
+                                        match parseLine finalLine with
                                         | Some ev -> onEvent ev
                                         | None -> ()
+                                        
+                                        lastLine <- line
                                     else
                                         sb.Append(c) |> ignore
                         with ex -> 
