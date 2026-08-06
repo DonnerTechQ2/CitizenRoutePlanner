@@ -276,17 +276,47 @@ module LogParser =
             isRunning <- false
             cts.Cancel()
 
+    [<Literal>]
+    let private PROCESS_QUERY_LIMITED_INFORMATION = 0x1000u
+
+    [<DllImport("kernel32.dll", SetLastError = true)>]
+    extern nativeint private OpenProcess(uint32 dwDesiredAccess, bool bInheritHandle, int dwProcessId)
+
+    [<DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)>]
+    extern bool private QueryFullProcessImageName(nativeint hProcess, int dwFlags, StringBuilder lpExeName, int& lpdwSize)
+
+    [<DllImport("kernel32.dll", SetLastError = true)>]
+    extern bool private CloseHandle(nativeint hObject)
+
+    let private tryGetProcessImagePath (proc: Process) =
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, proc.Id)
+        if handle = nativeint 0 then None
+        else
+            try
+                let buffer = StringBuilder(4096)
+                let mutable size = buffer.Capacity
+                if QueryFullProcessImageName(handle, 0, buffer, &size) && size > 0 then
+                    Some(buffer.ToString(0, size))
+                else None
+            finally
+                CloseHandle(handle) |> ignore
+
+    let private candidateLogPaths (exePath: string) =
+        let exeDir = Path.GetDirectoryName(exePath)
+        if String.IsNullOrWhiteSpace(exeDir) then
+            Seq.empty
+        else
+            seq {
+                yield Path.Combine(exeDir, "Game.log")
+                let parent = Directory.GetParent(exeDir)
+                if not (isNull parent) then
+                    yield Path.Combine(parent.FullName, "Game.log")
+            }
+
     let findGameLogPath () =
-        try
-            let procs = Process.GetProcessesByName("starcitizen")
-            if procs.Length > 0 then
-                let exePath = procs.[0].MainModule.FileName
-                let dir1 = Path.GetDirectoryName(exePath)
-                let log1 = Path.Combine(dir1, "Game.log")
-                if File.Exists(log1) then Some log1
-                else
-                    let dir2 = Path.GetDirectoryName(dir1)
-                    let log2 = Path.Combine(dir2, "Game.log")
-                    if File.Exists(log2) then Some log2 else None
-            else None
-        with _ -> None
+        Process.GetProcessesByName("StarCitizen")
+        |> Seq.tryPick (fun proc ->
+            tryGetProcessImagePath proc
+            |> Option.bind (fun exePath ->
+                candidateLogPaths exePath
+                |> Seq.tryFind File.Exists))
