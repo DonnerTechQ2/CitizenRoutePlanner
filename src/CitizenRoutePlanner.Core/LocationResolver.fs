@@ -218,8 +218,12 @@ module LocationResolver =
     // Основной алгоритм резолва
     // ──────────────────────────────────────────────────────────────────────────
 
+    /// Кеш ZoneHostId -> LocationInfo (обучается на лету для интерьеров)
+    let zoneCache = ConcurrentDictionary<uint64, LocationInfo>()
+
     /// Гибридный алгоритм определения локации.
     ///
+    /// Шаг 0 — Проверка кеша ZoneHostId (если ранее обучился).
     /// Шаг 1 (Приоритет 1) — прямой матч по имени из JSON.
     /// Шаг 2 (Приоритет 2) — математика координат (только если |coords| > 10 км).
     /// Шаг 3 — Fallback → UnknownLocation.
@@ -229,15 +233,36 @@ module LocationResolver =
             (markerOpt: MarkerInfo option)
             : ResolvedLocation =
 
+        // ── Шаг 0: Кеш зон (интерьеры) ─────────────────────────────────────────
+        let cachedMatch =
+            markerOpt |> Option.bind (fun m ->
+                if m.ZoneHostId > 0UL then
+                    match zoneCache.TryGetValue(m.ZoneHostId) with
+                    | true, loc -> Some loc
+                    | _ -> None
+                else None
+            )
+
+        match cachedMatch with
+        | Some loc -> KnownLocation (loc, loc.Position)
+        | None ->
+
         // ── Шаг 1: матч по имени ──────────────────────────────────────────────
         let nameMatch =
             nameOpt
             |> Option.bind (fun name ->
-                Map.tryFind (name.ToLowerInvariant()) index.ByName
+                Map.tryFind (normalizeName name) index.ByName
             )
 
         match nameMatch with
-        | Some loc -> KnownLocation (loc, loc.Position)
+        | Some loc -> 
+            // Обучаем кеш: если у нас есть zoneHostId, привязываем его к найденной локации
+            // Теперь мы кэшируем и интерьеры (<10км), и станции на орбитах (с большими координатами)
+            match markerOpt with
+            | Some m when m.ZoneHostId > 0UL ->
+                zoneCache.TryAdd(m.ZoneHostId, loc) |> ignore
+            | _ -> ()
+            KnownLocation (loc, loc.Position)
         | None ->
 
         // ── Шаг 2: математика координат ──────────────────────────────────────
