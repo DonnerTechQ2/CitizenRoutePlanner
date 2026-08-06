@@ -10,6 +10,7 @@
 *.userosscache
 *.sln.docstates
 *.log
+publish/
 
 # Node / Vite (Svelte)
 node_modules/
