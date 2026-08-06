@@ -3,8 +3,8 @@ import { connection } from './connection';
 
 export const route = writable<any>(null);
 export const playerLocation = writable<any>(null);
-export const shipCapacity = writable<number>(16); // Default SCU
-export const shipSpeedModifier = writable<number>(1.0); // Default multiplier
+export const ship = writable<any>(null);
+export const quantumDrive = writable<any>(null);
 
 connection.on("RouteUpdated", (updatedRoute: any) => {
     route.set(updatedRoute);
@@ -14,16 +14,16 @@ connection.on("PlayerLocationUpdated", (location: any) => {
     playerLocation.set(location);
 });
 
-export function updateShipCapacity(scu: number) {
-    shipCapacity.set(scu);
+export function updateShip(stats: any) {
+    ship.set(stats);
     if (connection.state === "Connected") {
-        connection.invoke("SetShipCapacity", scu).catch(err => console.error(err));
+        connection.invoke("SetShip", stats).catch(err => console.error(err));
     }
 }
 
-export function updateShipSpeedModifier(modf: number) {
-    shipSpeedModifier.set(modf);
+export function updateQuantumDrive(stats: any) {
+    quantumDrive.set(stats);
     if (connection.state === "Connected") {
-        connection.invoke("SetShipSpeedModifier", modf).catch(err => console.error(err));
+        connection.invoke("SetQuantumDrive", stats).catch(err => console.error(err));
     }
 }
