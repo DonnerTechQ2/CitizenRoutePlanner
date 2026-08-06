@@ -10,63 +10,172 @@ module RouteEngine =
         | SamePlanetMoonsQT     // QT между спутниками или планета↔спутник (~65 сек)
         | InterplanetaryQT      // QT между разными планетами (~180 сек средн.)
 
-    let private getAtmoExitPenalty (loc: LocationInfo) =
-        let n = loc.Name.ToLowerInvariant()
-        let isPlanet = loc.Type = "Planet" || n.Contains("microtech") || n.Contains("hurston") || n.Contains("arccorp") || n.Contains("crusader")
-        if isPlanet then
-            if n.Contains("crusader") then 120.0
-            else 90.0
-        elif loc.Type = "Moon" then 30.0
-        else 0.0 // Station, DC, Outpost, etc. (Usually you are at a POI which inherits parent type or is itself on a body, but we assume the jump starts FROM the body if we are on surface). Wait, LocationInfo for an outpost will have Type="Outpost". 
-        // We need to check if the parent is a planet/moon, or just if the location is not in space.
-        // Let's refine this below.
+    let defaultHemeraDrive = {
+        Name = "Hemera"
+        Standard = {
+            DriveSpeed = 282_000_000.0
+            StageOneAccel = 4_200_000.0
+            StageTwoAccel = 18_500_000.0
+            SpoolUpTime = 6.0
+            CooldownTime = 15.66
+        }
+        Spline = {
+            DriveSpeed = 400_000.0
+            StageOneAccel = 250.0
+            StageTwoAccel = 50_000.0
+            SpoolUpTime = 6.0
+            CooldownTime = 15.66
+        }
+    }
 
-    let estimateTravelTime (fromLoc: LocationInfo) (toLoc: LocationInfo) (locations: LocationIndex) (speedMod: float) : float =
+    let getPlanetRadius (name: string) (typeStr: string) =
+        let n = name.ToLowerInvariant()
+        if n.Contains("crusader") then 7_500_000.0
+        elif typeStr.Equals("Planet", StringComparison.OrdinalIgnoreCase) then 1_000_000.0
+        else 250_000.0
+
+    let calculateKinematicTime (distance: float) (stats: QuantumModeStats) =
+        let a_sum = stats.StageOneAccel + stats.StageTwoAccel
+        let accelTime = (2.0 * stats.DriveSpeed) / a_sum
+        let accelDist = (pown stats.DriveSpeed 2) / a_sum
+        
+        if distance > 2.0 * accelDist then
+            let cruiseDist = distance - 2.0 * accelDist
+            let cruiseTime = cruiseDist / stats.DriveSpeed
+            accelTime * 2.0 + cruiseTime
+        else
+            let a_avg = a_sum / 2.0
+            2.0 * sqrt(distance / a_avg)
+
+    type AtmoProfile = {
+        Gravity: float // m/s^2
+        AtmoHeight: float // meters
+        AtmoEfficiency: float // multiplier for main thrusters
+    }
+
+    let getAtmoProfile (name: string) (typeStr: string) =
+        let n = name.ToLowerInvariant()
+        if n.Contains("crusader") then { Gravity = 9.81; AtmoHeight = 90_000.0; AtmoEfficiency = 0.3 }
+        elif typeStr.Equals("Planet", StringComparison.OrdinalIgnoreCase) || n.Contains("microtech") || n.Contains("hurston") || n.Contains("arccorp") then 
+            { Gravity = 9.81; AtmoHeight = 12_000.0; AtmoEfficiency = 0.5 }
+        elif typeStr.Equals("Moon", StringComparison.OrdinalIgnoreCase) then 
+            { Gravity = 3.4; AtmoHeight = 3_000.0; AtmoEfficiency = 0.9 }
+        else { Gravity = 0.0; AtmoHeight = 0.0; AtmoEfficiency = 1.0 }
+
+    let defaultShip = {
+        Name = "Default"
+        Mass = 242177.0 // Cutlass Black
+        CargoCapacity = 46
+        MaxSpeed = 1150.0
+        MainThrust = 18830926.0
+    }
+
+    let calculateTakeoffTime (profile: AtmoProfile) (ship: ShipStats) =
+        if profile.AtmoHeight <= 0.0 then 0.0
+        else
+            // a_up = (T / m) * eff - g
+            let a_up = (ship.MainThrust / ship.Mass) * profile.AtmoEfficiency - profile.Gravity
+            if a_up <= 0.0 then 9999.0 // Cannot takeoff
+            else
+                let t_accel = ship.MaxSpeed / a_up
+                let d_accel = 0.5 * a_up * t_accel * t_accel
+                if d_accel >= profile.AtmoHeight then
+                    sqrt (2.0 * profile.AtmoHeight / a_up)
+                else
+                    let d_cruise = profile.AtmoHeight - d_accel
+                    let t_cruise = d_cruise / ship.MaxSpeed
+                    t_accel + t_cruise
+
+    let calculateLandingTime (profile: AtmoProfile) (ship: ShipStats) =
+        if profile.AtmoHeight <= 0.0 then 0.0
+        else
+            // a_down = (T / m) + g
+            let a_down = (ship.MainThrust / ship.Mass) + profile.Gravity
+            let t_accel = ship.MaxSpeed / a_down
+            let d_accel = 0.5 * a_down * t_accel * t_accel
+            
+            // Braking via NAV -> SCM drop. Drops max speed to ~200 in ~5 seconds.
+            if profile.AtmoHeight <= d_accel then
+                sqrt (2.0 * profile.AtmoHeight / a_down) + 5.0
+            else
+                let d_cruise = profile.AtmoHeight - d_accel - 1000.0 // 1km for braking buffer
+                let cruiseDist = max 0.0 d_cruise
+                let t_cruise = cruiseDist / ship.MaxSpeed
+                t_accel + t_cruise + 10.0 // 10 seconds for NAV drop + touchdown
+
+    let estimateTravelTime (fromLoc: LocationInfo) (toLoc: LocationInfo) (locations: LocationIndex) (appState: AppState) : float =
         if fromLoc.Uuid = toLoc.Uuid then 0.0
         else
             let fromBody = LocationResolver.getParentBody fromLoc locations
             let toBody = LocationResolver.getParentBody toLoc locations
+            let ship = appState.Ship |> Option.defaultValue defaultShip
+            let qd = appState.QuantumDrive |> Option.defaultValue defaultHemeraDrive
             
-            // Atmo exit penalty. If fromLoc is on a body, we use the body to determine penalty.
-            // If fromLoc is already a planet/moon, use it. Otherwise use fromBody.
             let atmoSource = defaultArg fromBody fromLoc
-            let n = atmoSource.Name.ToLowerInvariant()
-            let isPlanet = atmoSource.Type = "Planet" || n.Contains("microtech") || n.Contains("hurston") || n.Contains("arccorp") || n.Contains("crusader")
-            
-            // Space stations are in space, no atmo.
             let isFromSpaceStation = fromLoc.Type = "Station" || fromLoc.Type = "SpaceStation" || fromLoc.Name.Contains("Station") || fromLoc.Name.Contains("Port ") || fromLoc.Name.Contains(" Baijini") || fromLoc.Name.Contains("Everus") || fromLoc.Name.Contains("Seraphim")
             
             let atmoExit = 
                 if isFromSpaceStation then 0.0
-                elif isPlanet then
-                    if n.Contains("crusader") then 120.0 else 90.0
-                elif atmoSource.Type = "Moon" then 30.0
-                else 0.0
+                else
+                    let profile = getAtmoProfile atmoSource.Name atmoSource.Type
+                    calculateTakeoffTime profile ship
+            
+            let atmoDest = defaultArg toBody toLoc
+            let isToSpaceStation = toLoc.Type = "Station" || toLoc.Type = "SpaceStation" || toLoc.Name.Contains("Station") || toLoc.Name.Contains("Port ") || toLoc.Name.Contains(" Baijini") || toLoc.Name.Contains("Everus") || toLoc.Name.Contains("Seraphim")
+            
+            let atmoEnter =
+                if isToSpaceStation then 0.0
+                else
+                    let profile = getAtmoProfile atmoDest.Name atmoDest.Type
+                    calculateLandingTime profile ship
 
-            let mutable baseTime = 0.0
-            let mutable addSpool = false
+            let mutable qtTime = 0.0
 
             if fromBody = toBody && fromBody.IsSome then
-                let distance = LocationResolver.euclideanDistance fromLoc.Position toLoc.Position
-                if distance < 20_000.0 then 
-                    baseTime <- 150.0       // SameSurface
+                let body = fromBody.Value
+                let dx = fromLoc.Position.X - toLoc.Position.X
+                let dy = fromLoc.Position.Y - toLoc.Position.Y
+                let dz = fromLoc.Position.Z - toLoc.Position.Z
+                let distanceEuc = sqrt (dx*dx + dy*dy + dz*dz)
+
+                if distanceEuc < 20_000.0 then 
+                    qtTime <- distanceEuc / 200.0 // SameSurface (No QT, approx 200m/s)
                 else 
-                    baseTime <- 65.0        // SameBodyQT
-                    addSpool <- true
+                    // Spline Jump (SameBodyQT)
+                    let rx1 = fromLoc.Position.X - body.Position.X
+                    let ry1 = fromLoc.Position.Y - body.Position.Y
+                    let rz1 = fromLoc.Position.Z - body.Position.Z
+                    let rx2 = toLoc.Position.X - body.Position.X
+                    let ry2 = toLoc.Position.Y - body.Position.Y
+                    let rz2 = toLoc.Position.Z - body.Position.Z
+                    
+                    let mag1 = sqrt (rx1*rx1 + ry1*ry1 + rz1*rz1)
+                    let mag2 = sqrt (rx2*rx2 + ry2*ry2 + rz2*rz2)
+                    let dot = rx1*rx2 + ry1*ry2 + rz1*rz2
+                    
+                    let cosTheta = dot / (mag1 * mag2)
+                    let cosThetaClamped = max -1.0 (min 1.0 cosTheta)
+                    let theta = acos cosThetaClamped
+                    
+                    let radius = getPlanetRadius body.Name body.Type
+                    let arcDistance = radius * theta
+                    
+                    qtTime <- calculateKinematicTime arcDistance qd.Spline + qd.Spline.SpoolUpTime
             elif fromBody.IsSome && toBody.IsSome && LocationResolver.sharePlanet fromBody.Value toBody.Value locations then
-                baseTime <- 65.0            // SamePlanetMoonsQT
-                addSpool <- true
+                // SamePlanetMoonsQT
+                let dist = LocationResolver.euclideanDistance fromLoc.Position toLoc.Position
+                qtTime <- calculateKinematicTime dist qd.Standard + qd.Standard.SpoolUpTime
             else
                 // InterplanetaryQT
                 let dist = 
                     match fromBody, toBody with
                     | Some fb, Some tb -> LocationResolver.euclideanDistance fb.Position tb.Position
                     | _ -> LocationResolver.euclideanDistance fromLoc.Position toLoc.Position
-                baseTime <- 100.0 + dist / 300_000_000.0
-                addSpool <- true
+                qtTime <- calculateKinematicTime dist qd.Standard + qd.Standard.SpoolUpTime
 
-            let totalTravel = (baseTime + atmoExit) / max 0.1 speedMod
-            if addSpool then totalTravel + 6.0 else totalTravel
+            let totalTime = atmoExit + qtTime + atmoEnter
+            totalTime
+
 
     // Внутренние типы для алгоритма
     type private RouteNode = {
@@ -82,8 +191,8 @@ module RouteEngine =
             match action with
             | PickupCargo (m, o, _, _) -> m, o
             | DropoffCargo (m, o, _, _) -> m, o
-            | PickupPackage (m, o) -> m, o
-            | DropoffPackage (m, o) -> m, o
+            | PickupPackage (m, o, _) -> m, o
+            | DropoffPackage (m, o, _) -> m, o
             | NavTo (m, o) -> m, o
         
         appState.Missions.TryFind missionId
@@ -121,8 +230,8 @@ module RouteEngine =
                 let scu = obj.ScuAmount |> Option.defaultValue 0
                 let action = 
                     match m.MissionType, obj.Type with
-                    | Courier, Pickup -> PickupPackage (m.MissionId, obj.ObjectiveId)
-                    | Courier, Dropoff -> DropoffPackage (m.MissionId, obj.ObjectiveId)
+                    | Courier, Pickup -> PickupPackage (m.MissionId, obj.ObjectiveId, obj.CargoType)
+                    | Courier, Dropoff -> DropoffPackage (m.MissionId, obj.ObjectiveId, obj.CargoType)
                     | Courier, Nav -> NavTo (m.MissionId, obj.ObjectiveId)
                     | _, Pickup -> PickupCargo (m.MissionId, obj.ObjectiveId, obj.ScuAmount, obj.CargoType)
                     | _, Dropoff -> DropoffCargo (m.MissionId, obj.ObjectiveId, obj.ScuAmount, obj.CargoType)
@@ -189,7 +298,7 @@ module RouteEngine =
 
             baseApproach + actionTime + cargoLoading
 
-    let private groupActionsToStops (nodes: RouteNode list) (startLocOpt: LocationInfo option) (locations: LocationIndex) (speedMod: float) : RouteStop list =
+    let private groupActionsToStops (nodes: RouteNode list) (startLocOpt: LocationInfo option) (locations: LocationIndex) (appState: AppState) : RouteStop list =
         if List.isEmpty nodes then []
         else
             let mutable currentLoc = startLocOpt
@@ -207,7 +316,7 @@ module RouteEngine =
                 
                 let time = 
                     match currentLoc with
-                    | Some curr -> estimateTravelTime curr loc locations speedMod
+                    | Some curr -> estimateTravelTime curr loc locations appState
                     | None -> 0.0
                 
                 let actionList = Seq.toList actions
@@ -226,7 +335,7 @@ module RouteEngine =
             Seq.toList stops
 
     // Branch & Bound для малого числа точек
-    let private solveBranchAndBound (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (speedMod: float) =
+    let private solveBranchAndBound (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (appState: AppState) =
         let bestRoute = ref None
         let bestCost = ref Double.MaxValue
         let n = nodes.Length
@@ -256,7 +365,7 @@ module RouteEngine =
                         if newCargo <= capacity then
                             let travelTime = 
                                 match lastLoc with
-                                | Some l -> estimateTravelTime l node.Location locations speedMod
+                                | Some l -> estimateTravelTime l node.Location locations appState
                                 | None -> 0.0
                             
                             // Note: Action time is not part of route optimization path cost, but we could add it.
@@ -272,7 +381,7 @@ module RouteEngine =
         bestRoute.Value |> Option.defaultValue nodes
 
     // Greedy + 2-opt для большого числа точек
-    let private solveGreedy (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (speedMod: float) =
+    let private solveGreedy (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (appState: AppState) =
         // Упрощенный жадный алгоритм
         let mutable currentLoc = startLoc
         let mutable cargo = currentCargo
@@ -310,7 +419,7 @@ module RouteEngine =
                 let bestNode = 
                     validNodes |> List.minBy (fun n -> 
                         match currentLoc with
-                        | Some l -> estimateTravelTime l n.Location locations speedMod
+                        | Some l -> estimateTravelTime l n.Location locations appState
                         | None -> 0.0)
                 
                 route.Add(bestNode)
@@ -353,7 +462,7 @@ module RouteEngine =
                         if c < 0 then c <- 0
                         if c > capacity then valid <- false
                         else
-                            let time = match lastLoc with | Some l -> estimateTravelTime l node.Location locations speedMod | None -> 0.0
+                            let time = match lastLoc with | Some l -> estimateTravelTime l node.Location locations appState | None -> 0.0
                             totalTime <- totalTime + time
                             lastLoc <- Some node.Location
             if valid then Some totalTime else None
@@ -385,14 +494,14 @@ module RouteEngine =
         if List.isEmpty nodes then None
         else
             let startLoc = appState.PlayerLocation // В реальности может быть QuantumDestination
-            let speedMod = appState.ShipSpeedModifier
             let optimizedNodes = 
+                let shipCapacity = appState.Ship |> Option.map (fun s -> s.CargoCapacity) |> Option.defaultValue 0
                 if nodes.Length <= 12 then
-                    solveBranchAndBound nodes startLoc appState.ShipCapacityScu appState.CurrentCargoScu locations speedMod
+                    solveBranchAndBound nodes startLoc shipCapacity appState.CurrentCargoScu locations appState
                 else
-                    solveGreedy nodes startLoc appState.ShipCapacityScu appState.CurrentCargoScu locations speedMod
+                    solveGreedy nodes startLoc shipCapacity appState.CurrentCargoScu locations appState
             
-            let stops = groupActionsToStops optimizedNodes startLoc locations speedMod
+            let stops = groupActionsToStops optimizedNodes startLoc locations appState
             let totalTime = stops |> List.sumBy (fun s -> s.TravelTimeEstimate + s.ActionTimeEstimate)
             
             Some {

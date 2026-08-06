@@ -4,6 +4,21 @@ open System
 
 type Coordinates = { X: float; Y: float; Z: float }
 
+type QuantumModeStats = {
+    DriveSpeed: float
+    StageOneAccel: float
+    StageTwoAccel: float
+    SpoolUpTime: float
+    CooldownTime: float
+}
+
+type QuantumDriveStats = {
+    Name: string
+    Standard: QuantumModeStats
+    Spline: QuantumModeStats
+}
+
+
 type LocationInfo = {
     Uuid: Guid
     Name: string
@@ -63,8 +78,8 @@ type Mission = {
 type RouteAction = 
     | PickupCargo of missionId: Guid * objectiveId: string * scuAmount: int option * cargoType: string option
     | DropoffCargo of missionId: Guid * objectiveId: string * scuAmount: int option * cargoType: string option
-    | PickupPackage of missionId: Guid * objectiveId: string
-    | DropoffPackage of missionId: Guid * objectiveId: string
+    | PickupPackage of missionId: Guid * objectiveId: string * cargoType: string option
+    | DropoffPackage of missionId: Guid * objectiveId: string * cargoType: string option
     | NavTo of missionId: Guid * objectiveId: string
 
 type RouteStop = {
@@ -80,12 +95,20 @@ type Route = {
     CurrentStopIndex: int
 }
 
+type ShipStats = {
+    Name: string
+    Mass: float
+    CargoCapacity: int
+    MaxSpeed: float
+    MainThrust: float
+}
+
 type AppState = {
     Missions: Map<Guid, Mission>
     CurrentRoute: Route option
     PlayerLocation: LocationInfo option
     QuantumDestination: LocationInfo option
-    ShipCapacityScu: int
+    Ship: ShipStats option
     CurrentCargoScu: int
-    ShipSpeedModifier: float
+    QuantumDrive: QuantumDriveStats option
 }

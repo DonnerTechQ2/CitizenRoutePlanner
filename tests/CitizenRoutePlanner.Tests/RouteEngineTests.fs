@@ -82,9 +82,9 @@ module RouteEngineTests =
             CurrentRoute = None
             PlayerLocation = Some planetA
             QuantumDestination = None
-            ShipCapacityScu = 10
+            Ship = None
             CurrentCargoScu = 0
-            ShipSpeedModifier = 1.0
+            QuantumDrive = None
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -117,9 +117,9 @@ module RouteEngineTests =
             CurrentRoute = None
             PlayerLocation = Some planetA
             QuantumDestination = None
-            ShipCapacityScu = 10
+            Ship = None
             CurrentCargoScu = 0
-            ShipSpeedModifier = 1.0
+            QuantumDrive = None
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -152,9 +152,9 @@ module RouteEngineTests =
             CurrentRoute = None
             PlayerLocation = Some planetA
             QuantumDestination = None
-            ShipCapacityScu = 10
+            Ship = None
             CurrentCargoScu = 0
-            ShipSpeedModifier = 1.0
+            QuantumDrive = None
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations
@@ -183,9 +183,9 @@ module RouteEngineTests =
             CurrentRoute = None
             PlayerLocation = Some planetA
             QuantumDestination = None
-            ShipCapacityScu = 10
+            Ship = None
             CurrentCargoScu = 0
-            ShipSpeedModifier = 1.0
+            QuantumDrive = None
         }
         
         let routeOpt = RouteEngine.calculateRoute appState testLocations

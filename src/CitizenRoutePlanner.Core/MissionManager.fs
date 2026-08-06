@@ -9,9 +9,9 @@ module MissionManager =
         CurrentRoute = None
         PlayerLocation = None
         QuantumDestination = None
-        ShipCapacityScu = 0
+        Ship = None
         CurrentCargoScu = 0
-        ShipSpeedModifier = 1.0
+        QuantumDrive = None
     }
 
     let recalculateCargoScu (missions: Map<Guid, Mission>) =
@@ -155,7 +155,7 @@ module MissionManager =
                     AbsolutePosition = absPosOpt
                     ResolvedLocation = locInfoOpt
                     ScuAmount = pendingScu
-                    CargoType = pendingCargo |> Option.orElse (LogParser.extractCargoTypeFromContractName updatedMission2.ContractName)
+                    CargoType = pendingCargo |> Option.orElse (LogParser.extractCargoTypeFromContractName contractName)
                     DestinationName = pendingDest
                     Status = Pending
                 }
