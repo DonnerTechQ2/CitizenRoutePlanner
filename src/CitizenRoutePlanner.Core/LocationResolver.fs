@@ -294,6 +294,26 @@ module LocationResolver =
         | Some (loc, absPos, dist) -> InferredLocation (loc, absPos, dist)
         | None ->
 
+        // ── Шаг 2.5: матч по Z-координате (fallback) ──────────────────────────
+        let zMatch =
+            markerOpt |> Option.bind (fun marker ->
+                let targetZ = System.Math.Round(marker.Position.Z, 2)
+                let matches =
+                    index.All
+                    |> List.filter (fun loc -> System.Math.Round(loc.Position.Z, 2) = targetZ)
+                match matches with
+                | [singleMatch] ->
+                    // Обучаем кеш: если у нас есть zoneHostId, привязываем его к найденной локации
+                    if marker.ZoneHostId > 0UL then
+                        zoneCache.TryAdd(marker.ZoneHostId, singleMatch) |> ignore
+                    Some singleMatch
+                | _ -> None
+            )
+
+        match zMatch with
+        | Some loc -> KnownLocation (loc, loc.Position)
+        | None ->
+
         // ── Шаг 3: Fallback ───────────────────────────────────────────────────
         let zoneHostId =
             markerOpt |> Option.map (fun m -> m.ZoneHostId) |> Option.defaultValue 0UL

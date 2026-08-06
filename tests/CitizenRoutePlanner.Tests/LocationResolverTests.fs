@@ -336,6 +336,31 @@ module LocationResolverTests =
         Assert.Equal(None, hint)
         Assert.Equal(0UL, zid)
 
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Z-coordinate fallback matches a unique location`` () =
+        let targetLoc = { Uuid = Guid.NewGuid(); Name = "Unique Z Station"; Type = "Station"; System = "stanton"; ParentUuid = None; QtValid = true; Position = coords 500000.0 600000.0 5565883.23 }
+        let otherLoc = { Uuid = Guid.NewGuid(); Name = "Other Station"; Type = "Station"; System = "stanton"; ParentUuid = None; QtValid = true; Position = coords 0.0 0.0 0.0 }
+        
+        let customIndex = {
+            All = [targetLoc; otherLoc]
+            ByUuid = Map.empty
+            ByName = Map.empty
+            Planets = []
+            Moons = []
+            CelestialBodies = []
+        }
+
+        // Симулируем маркер с уникальной Z
+        let markerPos = coords 10.0 20.0 5565883.231 // +0.001 для проверки округления
+        
+        let result = LocationResolver.resolveLocation customIndex None (Some { Position = markerPos; ZoneHostId = 0UL })
+        match result with
+        | KnownLocation (loc, _) ->
+            Assert.Equal("Unique Z Station", loc.Name)
+        | other ->
+            Assert.Fail($"Ожидался KnownLocation для совпадения по Z, получен: %A{other}")
+
     // ─────────────────────────────────────────────────────────────────────────
     // Группа 7 — Вспомогательные функции
     // ─────────────────────────────────────────────────────────────────────────
