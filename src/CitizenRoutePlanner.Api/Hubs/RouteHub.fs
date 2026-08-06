@@ -3,6 +3,7 @@ namespace CitizenRoutePlanner.Api.Hubs
 open System.Threading.Tasks
 open Microsoft.AspNetCore.SignalR
 open CitizenRoutePlanner.Api.Services
+open CitizenRoutePlanner.Core
 
 type RouteHub(appStateService: AppStateService) =
     inherit Hub()
@@ -26,8 +27,8 @@ type RouteHub(appStateService: AppStateService) =
             do! caller.SendAsync("ConnectionStatus", appStateService.GetConnectionStatus())
         } :> Task
 
-    member this.SetShipCapacity(scu: int) =
-        appStateService.UpdateCapacity(scu)
+    member this.SetShip(ship: ShipStats) =
+        appStateService.UpdateShip(ship)
 
-    member this.SetShipSpeedModifier(modf: float) =
-        appStateService.UpdateSpeedModifier(modf)
+    member this.SetQuantumDrive(stats: QuantumDriveStats) =
+        appStateService.UpdateQuantumDrive(stats)

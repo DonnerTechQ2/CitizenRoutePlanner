@@ -12,8 +12,8 @@ open CitizenRoutePlanner.Api.Hubs
 
 type WatcherMessage =
     | LogEvent of LogParser.LogEvent
-    | CapacityChanged of int
-    | SpeedModifierChanged of float
+    | ShipChanged of ShipStats
+    | QuantumDriveChanged of QuantumDriveStats
     | DebugLine of string
 
 type LogWatcherService(
@@ -66,16 +66,12 @@ type LogWatcherService(
                             | LogEvent ev -> 
                                 stateChanged <- true
                                 MissionManager.processEvent idx currentState ev
-                            | CapacityChanged scu -> 
-                                if currentState.ShipCapacityScu <> scu then
-                                    stateChanged <- true
-                                    { currentState with ShipCapacityScu = scu }
-                                else currentState
-                            | SpeedModifierChanged modf ->
-                                if currentState.ShipSpeedModifier <> modf then
-                                    stateChanged <- true
-                                    { currentState with ShipSpeedModifier = modf }
-                                else currentState
+                            | ShipChanged ship ->
+                                stateChanged <- true
+                                { currentState with Ship = Some ship }
+                            | QuantumDriveChanged stats ->
+                                stateChanged <- true
+                                { currentState with QuantumDrive = Some stats }
                             | DebugLine line ->
                                 appStateService.SetConnectionStatus("Simulating...")
                                 hubContext.Clients.All.SendAsync("ConnectionStatus", {| logPath = "Simulating..." |}) |> ignore
@@ -134,8 +130,8 @@ type LogWatcherService(
             else
                 logger.LogWarning($"Could not find locations-positions.json at {actualPath}")
 
-            appStateService.CapacityChanged.Add(fun scu -> agent.Post(CapacityChanged scu))
-            appStateService.SpeedModifierChanged.Add(fun modf -> agent.Post(SpeedModifierChanged modf))
+            appStateService.ShipChanged.Add(fun s -> agent.Post(ShipChanged s))
+            appStateService.QuantumDriveChanged.Add(fun stats -> agent.Post(QuantumDriveChanged stats))
             appStateService.DebugLogLine.Add(fun line -> agent.Post(DebugLine line))
 
             // Polling loop for Game.log
