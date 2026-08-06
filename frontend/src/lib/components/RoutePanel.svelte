@@ -30,7 +30,6 @@
     <div class="route-timeline">
         {#if !$route || !$route.stops || $route.stops.length === 0}
             <div class="empty-state">
-                <div class="glow-orb"></div>
                 <p>Route is empty.</p>
                 <p class="sub">Waiting for active missions to generate an optimal path...</p>
             </div>
@@ -107,26 +106,9 @@
         color: var(--text-muted);
     }
     
-
-    .glow-orb {
-        width: 120px;
-        height: 120px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(13, 148, 136, 0.35) 0%, transparent 70%);
-        box-shadow: 0 0 20px rgba(13, 148, 136, 0.5);
-        margin-bottom: 1rem;
-        animation: pulse-glow 6s infinite ease-in-out;
-    }
-    
     .empty-state p {
         margin: 0;
         font-size: 1.1rem;
-    }
-    
-    @keyframes pulse-glow {
-        0% { transform: scale(0.95); opacity: 0.6; box-shadow: 0 0 15px rgba(13, 148, 136, 0.3); }
-        50% { transform: scale(1.05); opacity: 0.85; box-shadow: 0 0 25px rgba(13, 148, 136, 0.5); }
-        100% { transform: scale(0.95); opacity: 0.6; box-shadow: 0 0 15px rgba(13, 148, 136, 0.3); }
     }
     
     .empty-state .sub {

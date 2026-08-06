@@ -86,7 +86,9 @@
     <div class="details">
         <span class="detail-label">{mission.generatorName}</span>
         {#if isHaul}
-            {@const scuTotal = mission.objectives.reduce((acc, o) => acc + (o.scuAmount || 0), 0)}
+            {@const pickupScu = mission.objectives.filter(o => o.type?.Case === 'Pickup').reduce((acc, o) => acc + (o.scuAmount || 0), 0)}
+            {@const dropoffScu = mission.objectives.filter(o => o.type?.Case === 'Dropoff').reduce((acc, o) => acc + (o.scuAmount || 0), 0)}
+            {@const scuTotal = Math.max(pickupScu, dropoffScu)}
             <span class="detail-value scu-tag">{scuTotal} SCU</span>
         {/if}
     </div>
@@ -110,6 +112,9 @@
                     <CircleDashed size={14} class="obj-icon" />
                 {/if}
                 <span class="obj-type">{obj.type?.Case === 'Pickup' ? 'PICKUP' : (obj.type?.Case === 'Dropoff' ? 'DROPOFF' : 'NAV')}</span>
+                {#if obj.cargoType}
+                    <span class="obj-cargo">[{obj.cargoType}]</span>
+                {/if}
                 <span class="obj-loc">{obj.destinationName || obj.resolvedLocation?.name || 'Unknown Location'}</span>
             </div>
         {/each}
@@ -290,6 +295,12 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .obj-cargo {
+        color: var(--accent-cyan);
+        font-weight: 500;
+        margin-right: 0.2rem;
     }
 
     .glitch-abort {

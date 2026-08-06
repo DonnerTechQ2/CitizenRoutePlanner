@@ -68,7 +68,10 @@
                 {@const isPickup = action.Case === 'PickupCargo' || action.Case === 'PickupPackage'}
                 {@const isDropoff = action.Case === 'DropoffCargo' || action.Case === 'DropoffPackage'}
                 {@const isNav = action.Case === 'NavTo'}
-                {@const hasScu = action.Fields?.[2] || action.scuAmount}
+                {@const isPackage = action.Case === 'PickupPackage' || action.Case === 'DropoffPackage'}
+                {@const isCargo = action.Case === 'PickupCargo' || action.Case === 'DropoffCargo'}
+                {@const hasScu = action.scuAmount || (isCargo ? action.Fields?.[2] : undefined)}
+                {@const cargoType = action.cargoType || (isCargo ? action.Fields?.[3] : (isPackage ? action.Fields?.[2] : undefined))}
                 <div class="action-item" class:pickup={isPickup} class:dropoff={isDropoff} class:nav={isNav}>
                     <div class="action-icon">
                         {#if isPickup}
@@ -81,6 +84,9 @@
                     </div>
                     <div class="action-details">
                         <span class="action-type">{isPickup ? 'PICKUP' : (isDropoff ? 'DROPOFF' : 'NAV')}</span>
+                        {#if cargoType}
+                            <span class="cargo-type-pill">{cargoType}</span>
+                        {/if}
                         {#if hasScu}
                             <span class="scu-pill">{hasScu} SCU</span>
                         {/if}
@@ -292,9 +298,21 @@
     }
     
     .action-type {
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-main);
+    }
+    
+    .cargo-type-pill {
+        font-size: 0.7rem;
         font-weight: 600;
-        font-size: 0.85rem;
-        letter-spacing: 0.5px;
+        background: rgba(0, 255, 255, 0.1);
+        color: var(--accent-cyan);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid rgba(0, 255, 255, 0.3);
+        margin-left: 0.3rem;
     }
     
     .scu-pill {
