@@ -1,7 +1,7 @@
 import fs from 'fs';
 import readline from 'readline';
 
-const API_URL = 'http://localhost:5294/api/debug/inject-log-line';
+const API_URL = 'http://localhost:5000/api/debug/inject-log-line';
 const DELAY_MS = 50; // Задержка между строками для имитации реального времени
 
 async function simulate(logFilePath) {
@@ -55,5 +55,5 @@ async function simulate(logFilePath) {
 }
 
 const args = process.argv.slice(2);
-const logFile = args[0] || 'logs/GameSimulate.log';
+const logFile = args[0] || 'logs/Game3simshort.log';
 simulate(logFile);
