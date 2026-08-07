@@ -26,6 +26,130 @@ module MissionManager =
         
         Math.Max(0, pickedUp - droppedOff)
 
+    let extractSuffix (id: string) =
+        let lower = id.ToLowerInvariant()
+        if lower.StartsWith("dropoff_") then id.Substring(8)
+        elif lower.StartsWith("pickup_") then id.Substring(7)
+        elif lower.StartsWith("dropoff") then id.Substring(7)
+        elif lower.StartsWith("pickup") then id.Substring(6)
+        else id
+
+    let syncObjectivesWithContract (contractNameOpt: string option) (objs: MissionObjective list) : MissionObjective list =
+        let fallbackOpt = contractNameOpt |> Option.bind LogParser.extractCargoTypeFromContractName
+
+        let isGeneric (c: string) =
+            match fallbackOpt with
+            | Some fb when String.Equals(c, fb, StringComparison.OrdinalIgnoreCase) -> true
+            | _ -> false
+
+        let pickups = objs |> List.filter (fun o -> o.Type = Pickup)
+        let dropoffs = objs |> List.filter (fun o -> o.Type = Dropoff)
+
+        objs |> List.map (fun obj ->
+            match obj.Type with
+            | Pickup ->
+                let assocDropoffs =
+                    if pickups.Length = 1 then
+                        dropoffs
+                    else
+                        let matched =
+                            dropoffs |> List.filter (fun d ->
+                                (obj.PairedObjectiveId.IsSome && obj.PairedObjectiveId.Value = d.ObjectiveId) ||
+                                (d.PairedObjectiveId.IsSome && d.PairedObjectiveId.Value = obj.ObjectiveId) ||
+                                (let s = extractSuffix obj.ObjectiveId in s <> "" && s = extractSuffix d.ObjectiveId)
+                            )
+                        if List.isEmpty matched then dropoffs else matched
+
+                let dropoffScus = assocDropoffs |> List.choose (fun d -> d.ScuAmount)
+                let totalScu =
+                    if pickups.Length = 1 then
+                        if not (List.isEmpty dropoffScus) && List.sum dropoffScus > 0 then
+                            Some (List.sum dropoffScus)
+                        else
+                            obj.ScuAmount
+                    else
+                        match obj.ScuAmount with
+                        | Some s when s > 0 -> Some s
+                        | _ ->
+                            if not (List.isEmpty dropoffScus) && List.sum dropoffScus > 0 then
+                                Some (List.sum dropoffScus)
+                            else
+                                None
+
+                let dropoffCargos = assocDropoffs |> List.choose (fun d -> d.CargoType) |> List.filter (fun c -> not (String.IsNullOrWhiteSpace c))
+                let specificCargos = dropoffCargos |> List.filter (fun c -> not (isGeneric c))
+                let cargosToUse = if not (List.isEmpty specificCargos) then specificCargos else dropoffCargos
+                let distinctCargos = cargosToUse |> List.distinct
+
+                let combinedCargo =
+                    if not (List.isEmpty distinctCargos) then
+                        Some (String.Join(", ", distinctCargos))
+                    else
+                        obj.CargoType |> Option.orElse fallbackOpt
+
+                let pairedId =
+                    if assocDropoffs.Length = 1 then Some assocDropoffs.Head.ObjectiveId
+                    else obj.PairedObjectiveId
+
+                { obj with
+                    ScuAmount = totalScu
+                    CargoType = combinedCargo
+                    PairedObjectiveId = pairedId }
+
+            | Dropoff ->
+                let assocPickups =
+                    if dropoffs.Length = 1 then
+                        pickups
+                    else
+                        let matched =
+                            pickups |> List.filter (fun p ->
+                                (obj.PairedObjectiveId.IsSome && obj.PairedObjectiveId.Value = p.ObjectiveId) ||
+                                (p.PairedObjectiveId.IsSome && p.PairedObjectiveId.Value = obj.ObjectiveId) ||
+                                (let s = extractSuffix obj.ObjectiveId in s <> "" && s = extractSuffix p.ObjectiveId)
+                            )
+                        if List.isEmpty matched then pickups else matched
+
+                let pickupScus = assocPickups |> List.choose (fun p -> p.ScuAmount)
+                let totalScu =
+                    if dropoffs.Length = 1 then
+                        if not (List.isEmpty pickupScus) && List.sum pickupScus > 0 then
+                            Some (List.sum pickupScus)
+                        else
+                            obj.ScuAmount
+                    else
+                        match obj.ScuAmount with
+                        | Some s when s > 0 -> Some s
+                        | _ ->
+                            if not (List.isEmpty pickupScus) && List.sum pickupScus > 0 then
+                                Some (List.sum pickupScus)
+                            else
+                                None
+
+                let pairedId =
+                    if assocPickups.Length = 1 then Some assocPickups.Head.ObjectiveId
+                    else obj.PairedObjectiveId
+
+                let cargo =
+                    match obj.CargoType with
+                    | None ->
+                        if assocPickups.Length = 1 then assocPickups.Head.CargoType else None
+                    | Some c when isGeneric c ->
+                        let pickupCargo = if assocPickups.Length = 1 then assocPickups.Head.CargoType else None
+                        match pickupCargo with
+                        | Some pC when not (isGeneric pC) -> Some pC
+                        | _ -> obj.CargoType
+                    | _ -> obj.CargoType
+
+                { obj with
+                    ScuAmount = totalScu
+                    CargoType = cargo
+                    PairedObjectiveId = pairedId }
+
+            | Nav -> obj
+        )
+
+    let syncObjectives (objs: MissionObjective list) = syncObjectivesWithContract None objs
+
     let processEvent (index: LocationIndex) (state: AppState) (event: LogParser.LogEvent) : AppState =
         match event with
         | LogParser.ContractAccepted (ts, missionId, title) ->
@@ -91,7 +215,6 @@ module MissionManager =
                         )
                     match matchingPending with
                     | Some item ->
-                        // Безопасное удаление первого вхождения без ReferenceEquals
                         let rec removeFirst item list =
                             match list with
                             | [] -> []
@@ -99,7 +222,8 @@ module MissionManager =
                             | h :: t -> h :: removeFirst item t
                         let remaining = removeFirst item updatedMission.PendingObjectivesData
                         let (_, s, c, d) = item
-                        s, c, d, remaining
+                        let destForThisObj = if objType = Dropoff then d else None
+                        s, c, destForThisObj, remaining
                     | None -> None, None, None, updatedMission.PendingObjectivesData
                 | Some _ -> None, None, None, updatedMission.PendingObjectivesData
 
@@ -143,7 +267,7 @@ module MissionManager =
                                 ZoneHostId = zoneHostId
                                 AbsolutePosition = absPosOptExisting |> Option.orElse existingObj.AbsolutePosition
                                 ResolvedLocation = locInfoOptExisting |> Option.orElse existingObj.ResolvedLocation }
-                let newObjs = updatedMission2.Objectives |> List.map (fun o -> if o.ObjectiveId = objId then newObj else o)
+                let newObjs = updatedMission2.Objectives |> List.map (fun o -> if o.ObjectiveId = objId then newObj else o) |> syncObjectivesWithContract (Some updatedMission2.ContractName)
                 let m = { updatedMission2 with Objectives = newObjs }
                 { state with Missions = Map.add missionId m state.Missions }
             | None ->
@@ -158,8 +282,10 @@ module MissionManager =
                     CargoType = pendingCargo |> Option.orElse (LogParser.extractCargoTypeFromContractName contractName)
                     DestinationName = pendingDest
                     Status = Pending
+                    PairedObjectiveId = None
                 }
-                let m = { updatedMission2 with Objectives = updatedMission2.Objectives @ [newObj] }
+                let newObjs = (updatedMission2.Objectives @ [newObj]) |> syncObjectivesWithContract (Some updatedMission2.ContractName)
+                let m = { updatedMission2 with Objectives = newObjs }
                 { state with Missions = Map.add missionId m state.Missions }
 
         | LogParser.NewObjective (ts, missionId, objIdOpt, targetObjTypeHint, scuCur, scuTot, cargoType, destName) ->
@@ -200,7 +326,6 @@ module MissionManager =
                     match matchByDest with
                     | Some matched -> Some matched.ObjectiveId
                     | None ->
-                        // Fallback to objective of targetType with unset DestinationName
                         mission.Objectives 
                         |> List.tryFind (fun o -> o.Type = targetType && o.DestinationName.IsNone)
                         |> Option.map (fun o -> o.ObjectiveId)
@@ -224,18 +349,8 @@ module MissionManager =
                         | InferredLocation (l, _, _) -> Some l
                         | UnknownLocation _ -> obj.ResolvedLocation
 
-                    let suffix = 
-                        if objId.StartsWith("dropoff_") then objId.Substring(8)
-                        elif objId.StartsWith("pickup_") then objId.Substring(7)
-                        else objId
-
                     let newObjs = 
                         mission.Objectives |> List.map (fun o -> 
-                            let oSuffix = 
-                                if o.ObjectiveId.StartsWith("dropoff_") then o.ObjectiveId.Substring(8)
-                                elif o.ObjectiveId.StartsWith("pickup_") then o.ObjectiveId.Substring(7)
-                                else o.ObjectiveId
-
                             if o.ObjectiveId = objId then
                                 { o with 
                                     ScuAmount = if scuTot.IsSome then scuTot else o.ScuAmount
@@ -243,13 +358,10 @@ module MissionManager =
                                     DestinationName = if destName.IsSome then destName else o.DestinationName
                                     AbsolutePosition = absPosOpt
                                     ResolvedLocation = locInfoOpt }
-                            elif oSuffix = suffix then
-                                { o with
-                                    ScuAmount = if scuTot.IsSome then scuTot else o.ScuAmount
-                                    CargoType = if cargoType.IsSome then cargoType else o.CargoType }
-                            else
-                                o
+                            else o
                         )
+                        |> syncObjectivesWithContract (Some mission.ContractName)
+
                     let m = { mission with Objectives = newObjs }
                     { state with Missions = Map.add missionId m state.Missions }
                 | None ->
@@ -278,8 +390,10 @@ module MissionManager =
                         CargoType = cargoType
                         DestinationName = destName
                         Status = Pending
+                        PairedObjectiveId = None
                     }
-                    let m = { mission with Objectives = mission.Objectives @ [newObj] }
+                    let newObjs = (mission.Objectives @ [newObj]) |> syncObjectivesWithContract (Some mission.ContractName)
+                    let m = { mission with Objectives = newObjs }
                     { state with Missions = Map.add missionId m state.Missions }
             | None ->
                 let m = { mission with PendingObjectivesData = mission.PendingObjectivesData @ [(targetObjTypeHint, scuTot, cargoType, destName)] }
@@ -365,5 +479,21 @@ module MissionManager =
             | Some destLoc -> { state with PlayerLocation = Some destLoc; QuantumDestination = None }
             | None -> state
 
-        | LogParser.ItemRegistered _ ->
-            state
+        | LogParser.ItemRegistered (ts, missionId, pickupObjId, dropoffObjId, itemName) ->
+            match Map.tryFind missionId state.Missions with
+            | None -> state
+            | Some mission ->
+                let updatedObjs =
+                    mission.Objectives
+                    |> List.map (fun o ->
+                        if o.ObjectiveId = pickupObjId then
+                            { o with PairedObjectiveId = Some dropoffObjId
+                                     CargoType = o.CargoType |> Option.orElse (Some itemName) }
+                        elif o.ObjectiveId = dropoffObjId then
+                            { o with PairedObjectiveId = Some pickupObjId
+                                     CargoType = o.CargoType |> Option.orElse (Some itemName) }
+                        else o
+                    )
+                    |> syncObjectivesWithContract (Some mission.ContractName)
+                let m = { mission with Objectives = updatedObjs }
+                { state with Missions = Map.add missionId m state.Missions }

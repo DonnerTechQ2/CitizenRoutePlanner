@@ -51,7 +51,11 @@ module LogParser =
         if parts.Length >= 4 && contractName.StartsWith("HaulCargo_", StringComparison.OrdinalIgnoreCase) then
             // Format is usually HaulCargo_Topology_Category_Item_Location_Grade
             // e.g. HaulCargo_SingleToMulti3_Processed_Stims_Stanton4_SmallGrade1 -> Stims
-            Some parts.[3]
+            // If parts.[3] is "Mixed", use category parts.[2] (e.g. Waste)
+            if String.Equals(parts.[3], "Mixed", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3 then
+                Some parts.[2]
+            else
+                Some parts.[3]
         else
             None
 
@@ -162,6 +166,17 @@ module LogParser =
                             None, None,
                             Some (mDeliver.Groups.[1].Value.Trim()),
                             Some (mDeliver.Groups.[2].Value.Trim())
+                        ))
+                    else
+                    let mCollectScu = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Collect (\d+)(?:/(\d+))? SCU of (.*?) [fF]rom (.*?)(?:\s*:\s*)?""")
+                    if mCollectScu.Success then
+                        let curScu = int mCollectScu.Groups.[1].Value
+                        let totScu = if mCollectScu.Groups.[2].Success then int mCollectScu.Groups.[2].Value else curScu
+                        Some (NewObjective (
+                            ts, mId, objId, Some Pickup,
+                            Some curScu, Some totScu,
+                            Some (mCollectScu.Groups.[3].Value.Trim()),
+                            Some (mCollectScu.Groups.[4].Value.Trim())
                         ))
                     else
                         let mCollect = Regex.Match(line, @"(?:New Objective:|Objective Complete:|Objective Updated:) Collect (.*?) [fF]rom (.*?)(?:\s*:\s*)?""")

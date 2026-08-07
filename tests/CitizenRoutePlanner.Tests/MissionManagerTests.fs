@@ -14,6 +14,7 @@ module MissionManagerTests =
             CelestialBodies = []
             Planets = []
             Moons = []
+            ReferenceOrigins = []
         }
 
     let mkTime (sec: int) = DateTimeOffset.UtcNow.AddSeconds(float sec)
@@ -230,6 +231,48 @@ module MissionManagerTests =
         let st5 = MissionManager.processEvent index st4 (LogParser.ContractAbandoned (mkTime 4, missionId, "Haul Test"))
         Assert.Equal(MissionStatus.Abandoned, st5.Missions.[missionId].Status)
         Assert.Equal(0, st5.CurrentCargoScu)
+
+    [<Fact>]
+    let ``ItemRegistered links pickup and dropoff objectives`` () =
+        let index = createEmptyIndex()
+        let missionId = Guid.NewGuid()
+        let st1 = MissionManager.processEvent index MissionManager.initialState (LogParser.ContractAccepted (mkTime 0, missionId, "Item Link Test"))
+        let st2 = MissionManager.processEvent index st1 (LogParser.ObjectiveMarkerCreated (mkTime 1, missionId, "Gen", "HaulCargo", Guid.NewGuid(), "p_obj_1", Pickup, 1UL, {X=0.;Y=0.;Z=0.}))
+        let st3 = MissionManager.processEvent index st2 (LogParser.ObjectiveMarkerCreated (mkTime 2, missionId, "Gen", "HaulCargo", Guid.NewGuid(), "d_obj_1", Dropoff, 2UL, {X=1.;Y=1.;Z=1.}))
+
+        let st4 = MissionManager.processEvent index st3 (LogParser.ItemRegistered (mkTime 3, missionId, "p_obj_1", "d_obj_1", "Stims"))
+
+        let m = st4.Missions.[missionId]
+        let pObj = m.Objectives |> List.find (fun o -> o.ObjectiveId = "p_obj_1")
+        let dObj = m.Objectives |> List.find (fun o -> o.ObjectiveId = "d_obj_1")
+
+        Assert.Equal(Some "d_obj_1", pObj.PairedObjectiveId)
+        Assert.Equal(Some "p_obj_1", dObj.PairedObjectiveId)
+        Assert.Equal(Some "Stims", pObj.CargoType)
+        Assert.Equal(Some "Stims", dObj.CargoType)
+
+    [<Fact>]
+    let ``MultiToSingle mission sums pickup SCUs for single dropoff and preserves pickup SCUs`` () =
+        let index = createEmptyIndex()
+        let missionId = Guid.NewGuid()
+        let contractName = "HaulCargo_Multi2ToSingle_Stims_Stanton_SupplyGrade"
+        
+        let st1 = MissionManager.processEvent index MissionManager.initialState (LogParser.ContractAccepted (mkTime 0, missionId, "MultiToSingle Test"))
+        let st2 = MissionManager.processEvent index st1 (LogParser.ObjectiveMarkerCreated (mkTime 1, missionId, "Gen", contractName, Guid.NewGuid(), "pickup_7525e854_0", Pickup, 1UL, {X=0.;Y=0.;Z=0.}))
+        let st3 = MissionManager.processEvent index st2 (LogParser.ObjectiveMarkerCreated (mkTime 2, missionId, "Gen", contractName, Guid.NewGuid(), "pickup_7525e854_1", Pickup, 2UL, {X=1.;Y=1.;Z=1.}))
+        let st4 = MissionManager.processEvent index st3 (LogParser.ObjectiveMarkerCreated (mkTime 3, missionId, "Gen", contractName, Guid.NewGuid(), "dropoff_7525e854_0", Dropoff, 3UL, {X=2.;Y=2.;Z=2.}))
+
+        let st5 = MissionManager.processEvent index st4 (LogParser.NewObjective (mkTime 4, missionId, Some "pickup_7525e854_0", Some Pickup, Some 0, Some 20, Some "Stims", Some "Origin 1"))
+        let st6 = MissionManager.processEvent index st5 (LogParser.NewObjective (mkTime 5, missionId, Some "pickup_7525e854_1", Some Pickup, Some 0, Some 30, Some "Stims", Some "Origin 2"))
+
+        let m = st6.Missions.[missionId]
+        let p0 = m.Objectives |> List.find (fun o -> o.ObjectiveId = "pickup_7525e854_0")
+        let p1 = m.Objectives |> List.find (fun o -> o.ObjectiveId = "pickup_7525e854_1")
+        let d0 = m.Objectives |> List.find (fun o -> o.ObjectiveId = "dropoff_7525e854_0")
+
+        Assert.Equal(Some 20, p0.ScuAmount)
+        Assert.Equal(Some 30, p1.ScuAmount)
+        Assert.Equal(Some 50, d0.ScuAmount)
 
     [<Fact>]
     let ``Integration Game log processes correctly`` () =
