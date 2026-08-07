@@ -14,6 +14,7 @@ let main args =
     builder.Services.AddSignalR()
         .AddJsonProtocol(fun options ->
             options.PayloadSerializerOptions.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+            options.PayloadSerializerOptions.NumberHandling <- System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
             options.PayloadSerializerOptions.Converters.Add(System.Text.Json.Serialization.JsonFSharpConverter())
         ) |> ignore
     builder.Services.AddSingleton<AppStateService>() |> ignore

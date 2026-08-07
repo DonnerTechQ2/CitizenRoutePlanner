@@ -115,20 +115,22 @@ type LogWatcherService(
             
             // Load LocationIndex
             let baseDir = AppDomain.CurrentDomain.BaseDirectory
-            let dataPath = Path.Combine(baseDir, "locations-positions.json")
-            let actualPath = 
-                if File.Exists(dataPath) then dataPath
-                elif File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "locations-positions.json")) then
-                    Path.Combine(Directory.GetCurrentDirectory(), "locations-positions.json")
-                else
-                    let rootPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "locations-positions.json")
-                    if File.Exists(rootPath) then rootPath else ""
+            let currentDir = Directory.GetCurrentDirectory()
+            let candidatePaths = [
+                Path.Combine(baseDir, "locations-positions.json")
+                Path.Combine(currentDir, "locations-positions.json")
+                Path.Combine(currentDir, "..", "..", "locations-positions.json")
+            ]
+            
+            let actualPathOpt = candidatePaths |> List.tryFind File.Exists
 
-            if not (String.IsNullOrEmpty(actualPath)) && File.Exists(actualPath) then
-                locationIndex <- Some (LocationResolver.loadIndex actualPath)
-                logger.LogInformation("LocationIndex loaded.")
-            else
-                logger.LogWarning($"Could not find locations-positions.json at {actualPath}")
+            match actualPathOpt with
+            | Some path ->
+                locationIndex <- Some (LocationResolver.loadIndex path)
+                logger.LogInformation($"LocationIndex loaded from {path}")
+            | None ->
+                let searchedList = String.Join(", ", candidatePaths)
+                logger.LogWarning($"Could not find locations-positions.json. Searched locations: {searchedList}")
 
             appStateService.ShipChanged.Add(fun s -> agent.Post(ShipChanged s))
             appStateService.QuantumDriveChanged.Add(fun stats -> agent.Post(QuantumDriveChanged stats))

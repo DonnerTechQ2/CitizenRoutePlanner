@@ -5,6 +5,15 @@
     <TargetFramework Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' != 'true' ">net8.0</TargetFramework>
     <UseWindowsForms Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' == 'true' ">true</UseWindowsForms>
     <DefineConstants Condition=" '$([MSBuild]::IsOSPlatform(`Windows`))' == 'true' ">$(DefineConstants);WINDOWS</DefineConstants>
+
+    <!-- Default Publish Settings -->
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)..\..\publish\</PublishDir>
+    <PublishSingleFile Condition="'$(PublishSingleFile)' == ''">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(IncludeNativeLibrariesForSelfExtract)' == ''">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile Condition="'$(EnableCompressionInSingleFile)' == ''">true</EnableCompressionInSingleFile>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Services/AppStateService.fs" />
@@ -19,13 +28,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\locations-positions.json" CopyToOutputDirectory="PreserveNewest">
+    <Content Include="..\..\locations-positions.json">
       <Link>locations-positions.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="FSharp.SystemTextJson" Version="1.4.36" />
   </ItemGroup>
+
+  <Target Name="BuildFrontendBeforeBuild" BeforeTargets="BeforeBuild" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\frontend" />
+  </Target>
 
 </Project>
