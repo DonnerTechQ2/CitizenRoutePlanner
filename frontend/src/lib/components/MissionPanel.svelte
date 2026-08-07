@@ -78,13 +78,14 @@
         }
     }
 
+    $: activeCount = Array.from($missions.values()).filter(m => m.status?.Case === 'Active').length;
+
     $: missionsList = (trigger, Array.from($missions.values()))
-        .filter(m => (m.status?.Case !== 'Abandoned' && m.status?.Case !== 'Failed') || recentlyAborted.has(m.missionId))
         .sort((a, b) => {
             const getStatusRank = (mission) => {
                 const s = mission.status;
+                if (s?.Case === 'Active' || recentlyCompleted.has(mission.missionId) || recentlyAborted.has(mission.missionId)) return 0;
                 if (s?.Case === 'Completed' && !recentlyCompleted.has(mission.missionId)) return 1;
-                if (s?.Case === 'Active' || recentlyCompleted.has(mission.missionId)) return 0;
                 return 2; // aborted/failed
             };
             const rankA = getStatusRank(a);

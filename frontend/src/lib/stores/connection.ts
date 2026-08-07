@@ -4,13 +4,11 @@ import * as signalR from '@microsoft/signalr';
 export interface ConnectionStatus {
     state: string;
     logPath: string | null;
-    missionCount: number;
 }
 
 export const connectionStatus = writable<ConnectionStatus>({
     state: 'Disconnected',
-    logPath: null,
-    missionCount: 0
+    logPath: null
 });
 
 // Configure SignalR connection

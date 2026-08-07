@@ -5,7 +5,7 @@ export interface ToastNotification {
     title: string;
     message: string;
     missionTitle?: string;
-    duration: number; // in milliseconds, default 7000
+    duration: number; // in milliseconds, default 10000
     createdAt: number;
 }
 
@@ -15,7 +15,7 @@ export function addNotification(
     title: string,
     message: string,
     missionTitle?: string,
-    duration = 7000
+    duration = 10000
 ): string {
     const id = Math.random().toString(36).substring(2, 9);
     const toast: ToastNotification = {
@@ -47,7 +47,7 @@ export function triggerUntrackWarningNotification(missionTitle?: string) {
         "MISSION ACCEPTED // UNTRACK WARNING",
         "Remember to untrack this mission in mobiGlas! Active tracking prevents objective data from loading on your next pickup.",
         missionTitle,
-        7000
+        10000
     );
 }
 

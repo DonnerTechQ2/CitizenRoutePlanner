@@ -26,6 +26,28 @@
     function handleMouseLeave() {
         hoveredMissionIds.set(new Set());
     }
+    function formatLocationType(type?: string): string {
+        if (!type) return 'Point of Interest';
+        switch (type) {
+            case 'Manmade_VisibleOnInteraction':
+            case 'Manmade':
+            case 'SpaceStation':
+            case 'Station':
+                return 'Space Station';
+            case 'LandingZone':
+                return 'Landing Zone';
+            case 'PointOfInterest':
+                return 'Point of Interest';
+            case 'JumpPoint':
+                return 'Jump Point';
+            case 'NavPoint':
+                return 'Nav Point';
+            default:
+                return type
+                    .replace(/_/g, ' ')
+                    .replace(/([a-z])([A-Z])/g, '$1 $2');
+        }
+    }
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -60,7 +82,7 @@
                     {formatTime(stop.actionTimeEstimate)}
                 </span>
             {/if}
-            <span class="system-tag">{stop.location?.type || 'Point of Interest'}</span>
+            <span class="system-tag">{formatLocationType(stop.location?.type)}</span>
         </div>
         
         <div class="actions-list">

@@ -2,7 +2,8 @@
     import { connectionStatus } from '../stores/connection.ts';
     import { route } from '../stores/route.ts';
     import { missions } from '../stores/missions.ts';
-    import { Activity, Database, Route, Settings2, X, Package } from 'lucide-svelte';
+    import { zoomStore, MIN_ZOOM, MAX_ZOOM } from '../stores/zoom.ts';
+    import { Activity, Database, Settings2, X, Package, Plus, Minus } from 'lucide-svelte';
     import ShipConfig from './ShipConfig.svelte';
     import { fly } from 'svelte/transition';
 
@@ -70,14 +71,6 @@
     <div class="divider"></div>
     
     <div class="status-item">
-        <Route size={16} class="icon" />
-        <span class="label">Active Missions:</span>
-        <span class="value">{$connectionStatus.missionCount}</span>
-    </div>
-    
-    <div class="divider"></div>
-    
-    <div class="status-item">
         <Package size={16} class="icon" />
         <span class="label">Cargo Onboard:</span>
         <span class="value">
@@ -95,6 +88,34 @@
     
     <div class="spacer"></div>
     
+    <div class="zoom-controls">
+        <button 
+            class="zoom-btn" 
+            on:click={() => zoomStore.zoomOut()} 
+            title="Уменьшить масштаб" 
+            disabled={$zoomStore <= MIN_ZOOM}
+        >
+            <Minus size={14} />
+        </button>
+        <button 
+            class="zoom-indicator" 
+            on:click={() => zoomStore.reset()} 
+            title="Сбросить масштаб (100%)"
+        >
+            {$zoomStore}%
+        </button>
+        <button 
+            class="zoom-btn" 
+            on:click={() => zoomStore.zoomIn()} 
+            title="Увеличить масштаб" 
+            disabled={$zoomStore >= MAX_ZOOM}
+        >
+            <Plus size={14} />
+        </button>
+    </div>
+
+    <div class="divider"></div>
+
     <button class="config-btn" on:click={toggleConfig} class:active={isConfigOpen}>
         <Settings2 size={16} />
         <span>Ship Config</span>
@@ -162,6 +183,60 @@
 
     .spacer {
         flex: 1;
+    }
+
+    .zoom-controls {
+        display: flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--bg-panel-border);
+        border-radius: 4px;
+        padding: 0.15rem 0.25rem;
+        gap: 0.2rem;
+    }
+
+    .zoom-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        width: 22px;
+        height: 22px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .zoom-btn:hover:not(:disabled) {
+        background: rgba(0, 255, 255, 0.15);
+        color: var(--accent-cyan);
+    }
+
+    .zoom-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .zoom-indicator {
+        background: transparent;
+        border: none;
+        color: var(--text-main);
+        font-family: monospace;
+        font-size: 0.85rem;
+        font-weight: 600;
+        min-width: 42px;
+        text-align: center;
+        padding: 0 0.25rem;
+        cursor: pointer;
+        transition: var(--transition);
+        border-radius: 3px;
+    }
+
+    .zoom-indicator:hover {
+        color: var(--accent-cyan);
+        background: rgba(255, 255, 255, 0.05);
     }
     
     .config-btn {

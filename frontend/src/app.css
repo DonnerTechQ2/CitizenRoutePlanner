@@ -79,9 +79,9 @@ h1, h2, h3, h4, h5, h6 {
 #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh / var(--page-zoom, 1));
   width: 100%;
-  max-width: 1600px;
+  max-width: calc(1800px / var(--page-zoom, 1));
   margin: 0 auto;
 }
 
@@ -108,6 +108,12 @@ h1, h2, h3, h4, h5, h6 {
 .right-column {
   flex: 2 1 0%;
   min-width: 0;
+}
+
+.cargo-column {
+  flex: 1 1 0%;
+  min-width: 350px;
+  max-width: 500px;
 }
 
 /* Animations */

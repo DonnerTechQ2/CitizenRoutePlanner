@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Package, Truck, CheckCircle2, CircleDashed } from 'lucide-svelte';
     import { hoveredMissionIds } from '../stores/missions.ts';
+    import { ship } from '../stores/route.ts';
 
     export let mission;
 
@@ -9,6 +10,7 @@
     $: totalCount = mission.objectives.length;
     $: displayedCompletedCount = (trigger, mission.objectives.filter(o => delayedCompleted.has(o.objectiveId)).length);
     $: progress = (trigger, totalCount > 0 ? (displayedCompletedCount / totalCount) * 100 : 0);
+    $: isOversizedForShip = $ship && $ship.CargoCapacity > 0 && mission.objectives.some(o => o.type?.Case === 'Pickup' && o.status?.Case !== 'Completed' && (o.scuAmount || 0) > $ship.CargoCapacity);
     
     let handledObjectives = new Set();
     let recentCompletions = new Set();
@@ -37,7 +39,7 @@
                                     grayObjectives.add(obj.objectiveId);
                                     trigger += 1;
                                 }, 1500);
-                            }, 2000);
+                            }, 1000);
                         }
                     }
                 } else {
@@ -91,6 +93,9 @@
             {@const scuTotal = Math.max(pickupScu, dropoffScu)}
             <span class="detail-value scu-tag">{scuTotal} SCU</span>
         {/if}
+        {#if isOversizedForShip}
+            <span class="oversized-badge" title="Single pickup SCU exceeds ship cargo capacity">EXCEEDS SHIP CAPACITY</span>
+        {/if}
     </div>
 
     <div class="progress-container">
@@ -113,7 +118,7 @@
                 {/if}
                 <span class="obj-type">{obj.type?.Case === 'Pickup' ? 'PICKUP' : (obj.type?.Case === 'Dropoff' ? 'DROPOFF' : 'NAV')}</span>
                 {#if obj.cargoType}
-                    <span class="obj-cargo">[{obj.cargoType}]</span>
+                    <span class="obj-cargo" title={obj.cargoType}>[{obj.cargoType}]</span>
                 {/if}
                 <span class="obj-loc">{obj.destinationName || obj.resolvedLocation?.name || 'Unknown Location'}</span>
             </div>
@@ -224,6 +229,8 @@
         border-radius: 3px;
         border: 1px solid rgba(245, 158, 11, 0.3);
         font-weight: 600;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
     
     .progress-container {
@@ -266,6 +273,7 @@
         gap: 0.5rem;
         color: var(--text-muted);
         transition: color 0.5s ease;
+        min-width: 0;
     }
     
     .objective.done {
@@ -301,10 +309,28 @@
         color: var(--accent-cyan);
         font-weight: 500;
         margin-right: 0.2rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 140px;
+        flex-shrink: 1;
+        min-width: 0;
     }
 
     .glitch-abort {
         border-color: rgba(239, 68, 68, 0.8) !important;
         background: rgba(239, 68, 68, 0.1) !important;
+    }
+
+    .oversized-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        letter-spacing: 0.05em;
+        margin-left: auto;
     }
 </style>
