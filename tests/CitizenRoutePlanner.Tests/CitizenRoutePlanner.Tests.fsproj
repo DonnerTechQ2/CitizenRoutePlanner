@@ -17,9 +17,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\locations-positions.json">
+    <None Include="..\..\data\locations-positions\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>locations-positions.json</Link>
+      <Link>data\locations-positions\%(Filename)%(Extension)</Link>
     </None>
   </ItemGroup>
 

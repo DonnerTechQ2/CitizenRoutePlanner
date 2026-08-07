@@ -229,7 +229,7 @@ module RouteEngine =
             Uuid = Guid(hashBytes)
             Name = displayName
             Type = "Point of Interest"
-            System = "Stanton"
+            System = "Unknown"
             ParentUuid = None
             QtValid = false
             Position = {X=0.; Y=0.; Z=0.}

@@ -92,14 +92,8 @@ module LocationResolver =
         
         [l1; l2; l3; l4; l5]
 
-    /// Загружает locations-positions.json и строит все индексы.
-    /// Данные запрашиваются с API: https://api.star-citizen.wiki/api/locations/positions?filter[system]=stanton
-    /// Принимает путь к файлу — чтобы тесты могли подставить реальный путь.
-    let loadIndex (jsonPath: string) : LocationIndex =
-        let json   = File.ReadAllText(jsonPath)
-        let doc    = JsonNode.Parse(json)
-        let arr    = doc.["data"].AsArray()
-
+    /// Загружает список json-файлов (например, Stanton, Pyro, Nyx) и объединяет их в единый LocationIndex.
+    let loadIndices (jsonPaths: seq<string>) : LocationIndex =
         let parseCoord (v: JsonNode) =
             match v with
             | null -> 0.0
@@ -121,22 +115,29 @@ module LocationResolver =
             | other -> other
 
         let all =
-            arr
-            |> Seq.cast<JsonNode>
-            |> Seq.map (fun node ->
-                {
-                    Uuid       = match parseGuidOpt node.["uuid"] with | Some g -> g | None -> Guid.Empty
-                    Name       = node.["name"].GetValue<string>()
-                    Type       = normalizeLocationType (node.["type"].GetValue<string>())
-                    System     = node.["system"].GetValue<string>()
-                    ParentUuid = parseGuidOpt node.["parent_uuid"]
-                    QtValid    = node.["qt_valid"].GetValue<bool>()
-                    Position   = {
-                        X = parseCoord node.["x"]
-                        Y = parseCoord node.["y"]
-                        Z = parseCoord node.["z"]
-                    }
-                })
+            jsonPaths
+            |> Seq.filter File.Exists
+            |> Seq.collect (fun jsonPath ->
+                let json = File.ReadAllText(jsonPath)
+                let doc  = JsonNode.Parse(json)
+                let arr  = doc.["data"].AsArray()
+                arr
+                |> Seq.cast<JsonNode>
+                |> Seq.map (fun node ->
+                    {
+                        Uuid       = match parseGuidOpt node.["uuid"] with | Some g -> g | None -> Guid.Empty
+                        Name       = node.["name"].GetValue<string>()
+                        Type       = normalizeLocationType (node.["type"].GetValue<string>())
+                        System     = node.["system"].GetValue<string>()
+                        ParentUuid = parseGuidOpt node.["parent_uuid"]
+                        QtValid    = node.["qt_valid"].GetValue<bool>()
+                        Position   = {
+                            X = parseCoord node.["x"]
+                            Y = parseCoord node.["y"]
+                            Z = parseCoord node.["z"]
+                        }
+                    })
+            )
             |> Seq.toList
 
         let byUuid =
@@ -167,6 +168,38 @@ module LocationResolver =
             Moons            = moons
             ReferenceOrigins = referenceOrigins
         }
+
+    /// Загружает single locations-positions.json и строит все индексы.
+    let loadIndex (jsonPath: string) : LocationIndex =
+        loadIndices [jsonPath]
+
+    /// Ищет все *.json файлы локаций в папках data/locations-positions/ и загружает единый индекс.
+    /// Файлы можно получить с API https://api.star-citizen.wiki/api/locations/positions?filter[system]=stanton
+    let findAndLoadIndices (searchDirs: string list) : LocationIndex * string list =
+        let subPaths = [
+            Path.Combine("data", "locations-positions")
+            "locations-positions"
+            "data"
+            ""
+        ]
+
+        let candidateDirs =
+            searchDirs
+            |> List.collect (fun baseDir ->
+                subPaths |> List.map (fun sub -> if sub = "" then baseDir else Path.Combine(baseDir, sub))
+            )
+            |> List.filter Directory.Exists
+            |> List.distinct
+
+        let foundFiles =
+            candidateDirs
+            |> List.collect (fun dir ->
+                Directory.GetFiles(dir, "*.json") |> Array.toList
+            )
+            |> List.distinct
+
+        let index = loadIndices foundFiles
+        index, foundFiles
 
     // ──────────────────────────────────────────────────────────────────────────
     // Математические утилиты

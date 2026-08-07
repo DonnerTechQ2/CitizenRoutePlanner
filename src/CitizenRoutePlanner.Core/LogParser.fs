@@ -38,11 +38,9 @@ module LogParser =
             Courier
 
     let determineMissionScope (contractName: string) =
-        let m = Regex.Match(contractName, @"_Stanton(\d)_")
+        let m = Regex.Match(contractName, @"_(?:Stanton|Pyro|Nyx)(\d)_", RegexOptions.IgnoreCase)
         if m.Success then
             Local (int m.Groups.[1].Value)
-        elif contractName.Contains("_Stanton_") then
-            System
         else
             System
 

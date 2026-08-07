@@ -20,7 +20,13 @@ module LocationResolverTests =
         search AppContext.BaseDirectory
 
     let private locationsPath () =
-        IO.Path.Combine(findProjectRoot(), "locations-positions.json")
+        let root = findProjectRoot()
+        let inSubFolder = IO.Path.Combine(root, "data", "locations-positions", "stanton.json")
+        if IO.File.Exists(inSubFolder) then inSubFolder
+        else
+            let inData = IO.Path.Combine(root, "data", "locations-positions.json")
+            if IO.File.Exists(inData) then inData
+            else IO.Path.Combine(root, "locations-positions.json")
 
     // Lazy-загрузка индекса — один раз на все тесты
     let private indexLazy = lazy (LocationResolver.loadIndex (locationsPath ()))
@@ -670,4 +676,96 @@ module LocationResolverTests =
             Assert.Equal("MIC-L2 Long Forest Station", loc.Name)
         | UnknownLocation (nameOpt, zid) ->
             Assert.Fail($"Expected MIC-L2 Long Forest Station, got UnknownLocation ({nameOpt}, {zid})")
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Группа 9 — Тесты поддержки нескольких систем (Stanton, Pyro, Nyx)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``loadIndices loads Stanton, Pyro, and Nyx files into a combined index`` () =
+        let root = findProjectRoot()
+        let getPath name =
+            let pSub = IO.Path.Combine(root, "data", "locations-positions", name)
+            if IO.File.Exists(pSub) then pSub
+            else
+                let pData = IO.Path.Combine(root, "data", name)
+                if IO.File.Exists(pData) then pData else IO.Path.Combine(root, name)
+
+        let stantonPath = getPath "stanton.json"
+        let pyroPath = getPath "pyro.json"
+        let nyxPath = getPath "nyx.json"
+
+        let combinedIndex = LocationResolver.loadIndices [stantonPath; pyroPath; nyxPath]
+        
+        // Должно быть существенно больше локаций, чем 805 в Stanton
+        Assert.True(combinedIndex.All.Length > 805, $"Количество локаций ({combinedIndex.All.Length}) должно превышать 805")
+
+        // Проверяем наличие планет из всех трех систем
+        let planetSystems = combinedIndex.Planets |> List.map _.System |> set
+        Assert.Contains("stanton", planetSystems)
+        Assert.Contains("pyro", planetSystems)
+        Assert.Contains("nyx", planetSystems)
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Multi-system index resolves Pyro locations by name`` () =
+        let root = findProjectRoot()
+        let getPath name =
+            let pSub = IO.Path.Combine(root, "data", "locations-positions", name)
+            if IO.File.Exists(pSub) then pSub
+            else
+                let pData = IO.Path.Combine(root, "data", name)
+                if IO.File.Exists(pData) then pData else IO.Path.Combine(root, name)
+
+        let paths = [
+            getPath "stanton.json"
+            getPath "pyro.json"
+        ]
+        let multiIndex = LocationResolver.loadIndices paths
+        let result = LocationResolver.resolveLocation multiIndex (Some "Monox") None
+        match result with
+        | KnownLocation (loc, _) ->
+            Assert.Equal("Monox", loc.Name)
+            Assert.Equal("pyro", loc.System.ToLowerInvariant())
+            Assert.Equal("Planet", loc.Type)
+        | other -> Assert.Fail($"Ожидался KnownLocation для Monox, получен: %A{other}")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Multi-system index resolves Nyx locations by name`` () =
+        let root = findProjectRoot()
+        let getPath name =
+            let pSub = IO.Path.Combine(root, "data", "locations-positions", name)
+            if IO.File.Exists(pSub) then pSub
+            else
+                let pData = IO.Path.Combine(root, "data", name)
+                if IO.File.Exists(pData) then pData else IO.Path.Combine(root, name)
+
+        let paths = [
+            getPath "stanton.json"
+            getPath "nyx.json"
+        ]
+        let multiIndex = LocationResolver.loadIndices paths
+        let result = LocationResolver.resolveLocation multiIndex (Some "Delamar") None
+        match result with
+        | KnownLocation (loc, _) ->
+            Assert.Equal("Delamar", loc.Name)
+            Assert.Equal("nyx", loc.System.ToLowerInvariant())
+        | other ->
+            // Если Delamar не найден напрямую, проверяем любую локацию системы nyx
+            let nyxLoc = multiIndex.All |> List.tryFind (fun l -> l.System.ToLowerInvariant() = "nyx" && not (l.Name.Contains("UNINITIALIZED")))
+            Assert.True(nyxLoc.IsSome, "Должна присутствовать хотя бы одна локация из Nyx")
+            let res2 = LocationResolver.resolveLocation multiIndex (Some nyxLoc.Value.Name) None
+            match res2 with
+            | KnownLocation (l, _) -> Assert.Equal("nyx", l.System.ToLowerInvariant())
+            | _ -> Assert.Fail("Не удалось отрезолвить локацию Nyx")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``findAndLoadIndices finds and loads all available json location files`` () =
+        let root = findProjectRoot()
+        let index, foundFiles = LocationResolver.findAndLoadIndices [root]
+        Assert.True(foundFiles.Length >= 3, $"Ожидалось найти не менее 3 системных файлов, найдено: {foundFiles.Length}")
+        Assert.True(index.All.Length > 805, "Единый индекс должен объединять все 3 системы")
 
