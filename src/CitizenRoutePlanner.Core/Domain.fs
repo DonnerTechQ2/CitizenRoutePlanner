@@ -47,6 +47,7 @@ type MissionObjective = {
     CargoType: string option
     DestinationName: string option
     Status: ObjectiveStatus
+    PairedObjectiveId: string option
 }
 
 type MissionType = 

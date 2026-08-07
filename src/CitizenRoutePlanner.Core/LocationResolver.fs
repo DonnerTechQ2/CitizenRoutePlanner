@@ -37,6 +37,8 @@ type LocationIndex = {
     CelestialBodies  : LocationInfo list
     Planets          : LocationInfo list
     Moons            : LocationInfo list
+    /// Небесные тела + точки Лагранжа (L1..L5) — для гибридного расчета координат
+    ReferenceOrigins : Coordinates list
 }
 
 /// Обогащённые данные из Star Citizen Wiki API
@@ -59,15 +61,39 @@ module LocationResolver =
         name.Contains("<= UNINITIALIZED =>")
 
     let private normalizeName (name: string) =
-        let n = name.ToLowerInvariant()
-        // Convert "mic-l2" to "mic l2", but preserve things like "mic-l2 long forest station"
-        let m = System.Text.RegularExpressions.Regex.Match(n, @"^(mic|arc|hur|cru)-(l\d(?:-[a-z])?)$")
-        if m.Success then
-            m.Groups.[1].Value + " " + m.Groups.[2].Value
-        else
-            n
+        let n = name.ToLowerInvariant().Trim()
+        match n with
+        | "teasa spaceport" -> "lorville"
+        | "riker memorial spaceport" -> "area18"
+        | "august dunlow spaceport" -> "orison"
+        | "new babbage interstellar spaceport" -> "new babbage"
+        | _ ->
+            // Convert "mic-l2" to "mic l2", but preserve things like "mic-l2 long forest station"
+            let m = System.Text.RegularExpressions.Regex.Match(n, @"^(mic|arc|hur|cru)-(l\d(?:-[a-z])?)$")
+            if m.Success then
+                m.Groups.[1].Value + " " + m.Groups.[2].Value
+            else
+                n
+
+    /// Генерирует координаты точек Лагранжа (L1..L5) для планеты относительно ее звезды.
+    let getLagrangeOrigins (planet: LocationInfo) : Coordinates list =
+        let px = planet.Position.X
+        let py = planet.Position.Y
+        let pz = planet.Position.Z
+        
+        let l1 = { X = 0.90001217 * px; Y = 0.90001217 * py; Z = pz }
+        let l2 = { X = 1.10001217 * px; Y = 1.10001217 * py; Z = pz }
+        let l3 = { X = -1.0 * px; Y = -1.0 * py; Z = pz }
+        
+        let cos60 = 0.5
+        let sin60 = 0.8660254037844386
+        let l4 = { X = px * cos60 - py * sin60; Y = px * sin60 + py * cos60; Z = pz }
+        let l5 = { X = px * cos60 + py * sin60; Y = -px * sin60 + py * cos60; Z = pz }
+        
+        [l1; l2; l3; l4; l5]
 
     /// Загружает locations-positions.json и строит все индексы.
+    /// Данные запрашиваются с API: https://api.star-citizen.wiki/api/locations/positions?filter[system]=stanton
     /// Принимает путь к файлу — чтобы тесты могли подставить реальный путь.
     let loadIndex (jsonPath: string) : LocationIndex =
         let json   = File.ReadAllText(jsonPath)
@@ -88,6 +114,12 @@ module LocationResolver =
                 | true, g -> Some g
                 | _       -> None
 
+        let normalizeLocationType (t: string) =
+            match t with
+            | "Manmade_VisibleOnInteraction"
+            | "Manmade" -> "SpaceStation"
+            | other -> other
+
         let all =
             arr
             |> Seq.cast<JsonNode>
@@ -95,7 +127,7 @@ module LocationResolver =
                 {
                     Uuid       = match parseGuidOpt node.["uuid"] with | Some g -> g | None -> Guid.Empty
                     Name       = node.["name"].GetValue<string>()
-                    Type       = node.["type"].GetValue<string>()
+                    Type       = normalizeLocationType (node.["type"].GetValue<string>())
                     System     = node.["system"].GetValue<string>()
                     ParentUuid = parseGuidOpt node.["parent_uuid"]
                     QtValid    = node.["qt_valid"].GetValue<bool>()
@@ -122,13 +154,18 @@ module LocationResolver =
         let moons    = all |> List.filter (fun l -> l.Type = "Moon")
         let stars    = all |> List.filter (fun l -> l.Type = "Star")
 
+        let celestialBodies = stars @ planets @ moons
+        let lagrangeOrigins = planets |> List.collect getLagrangeOrigins
+        let referenceOrigins = (celestialBodies |> List.map (fun c -> c.Position)) @ lagrangeOrigins
+
         {
-            All             = all
-            ByUuid          = byUuid
-            ByName          = byName
-            CelestialBodies = stars @ planets @ moons
-            Planets         = planets
-            Moons           = moons
+            All              = all
+            ByUuid           = byUuid
+            ByName           = byName
+            CelestialBodies  = celestialBodies
+            Planets          = planets
+            Moons            = moons
+            ReferenceOrigins = referenceOrigins
         }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -210,42 +247,25 @@ module LocationResolver =
     [<Literal>]
     let CoordScaleThreshold = 10_000.0
 
-    /// Максимальная погрешность матча при координатной математике (50 км).
+    /// Максимальная погрешность матча при координатной математике (150 км для космоса и точек Лагранжа).
     [<Literal>]
-    let MaxInferenceDistanceM = 50_000.0
+    let MaxInferenceDistanceM = 150_000.0
 
     // ──────────────────────────────────────────────────────────────────────────
     // Основной алгоритм резолва
     // ──────────────────────────────────────────────────────────────────────────
 
-    /// Кеш ZoneHostId -> LocationInfo (обучается на лету для интерьеров)
-    let zoneCache = ConcurrentDictionary<uint64, LocationInfo>()
-
     /// Гибридный алгоритм определения локации.
     ///
-    /// Шаг 0 — Проверка кеша ZoneHostId (если ранее обучился).
     /// Шаг 1 (Приоритет 1) — прямой матч по имени из JSON.
     /// Шаг 2 (Приоритет 2) — математика координат (только если |coords| > 10 км).
+    /// Шаг 2.5 — матч по Z-координате (fallback).
     /// Шаг 3 — Fallback → UnknownLocation.
     let resolveLocation
             (index    : LocationIndex)
             (nameOpt  : string option)
             (markerOpt: MarkerInfo option)
             : ResolvedLocation =
-
-        // ── Шаг 0: Кеш зон (интерьеры) ─────────────────────────────────────────
-        let cachedMatch =
-            markerOpt |> Option.bind (fun m ->
-                if m.ZoneHostId > 0UL then
-                    match zoneCache.TryGetValue(m.ZoneHostId) with
-                    | true, loc -> Some loc
-                    | _ -> None
-                else None
-            )
-
-        match cachedMatch with
-        | Some loc -> KnownLocation (loc, loc.Position)
-        | None ->
 
         // ── Шаг 1: матч по имени ──────────────────────────────────────────────
         let nameMatch =
@@ -255,14 +275,7 @@ module LocationResolver =
             )
 
         match nameMatch with
-        | Some loc -> 
-            // Обучаем кеш: если у нас есть zoneHostId, привязываем его к найденной локации
-            // Теперь мы кэшируем и интерьеры (<10км), и станции на орбитах (с большими координатами)
-            match markerOpt with
-            | Some m when m.ZoneHostId > 0UL ->
-                zoneCache.TryAdd(m.ZoneHostId, loc) |> ignore
-            | _ -> ()
-            KnownLocation (loc, loc.Position)
+        | Some loc -> KnownLocation (loc, loc.Position)
         | None ->
 
         // ── Шаг 2: математика координат ──────────────────────────────────────
@@ -272,20 +285,40 @@ module LocationResolver =
                     // Интерьер здания — вычислить абсолютные координаты невозможно
                     None
                 else
-                    // Перебираем все небесные тела, для каждого:
-                    // absPos = body.Position + marker.Position
-                    // и ищем ближайшую реальную локацию
-                    index.CelestialBodies
-                    |> List.choose (fun body ->
-                        let absPos = addCoords body.Position marker.Position
-                        match findNearestLocation absPos index.All with
-                        | None                 -> None
-                        | Some (nearest, dist) ->
-                            if dist <= MaxInferenceDistanceM then
-                                Some (nearest, absPos, dist)
+                    // Фильтруем локации для поиска — только открытые (QtValid) и инициализированные
+                    let validLocations =
+                        index.All
+                        |> List.filter (fun l -> l.QtValid && not (isUninitializedName l.Name))
+
+                    // 1. Перебираем все опорные точки (небесные тела + точки Лагранжа)
+                    let candidatesFromOrigins =
+                        index.ReferenceOrigins
+                        |> List.choose (fun originPos ->
+                            let absPos = addCoords originPos marker.Position
+                            match findNearestLocation absPos validLocations with
+                            | None                 -> None
+                            | Some (nearest, dist) ->
+                                if dist <= MaxInferenceDistanceM then
+                                    Some (nearest, absPos, dist)
+                                else None
+                        )
+
+                    // 2. Для космических станций проверка совпадения Z-координаты (прямого или с астероидным смещением 8076.63 м, погрешность ≤ 0.5 м)
+                    let candidateFromStationZ =
+                        validLocations
+                        |> List.choose (fun loc ->
+                            let isStation = loc.Position.Z <> 0.0 && (loc.Type = "SpaceStation" || loc.Type = "Space Station" || loc.Type = "Manmade_VisibleOnInteraction" || loc.Type = "Manmade" || loc.Name.Contains("Station"))
+                            if isStation then
+                                let zDiffDirect = Math.Abs(loc.Position.Z - marker.Position.Z)
+                                let zDiffOffset = Math.Abs(loc.Position.Z - (marker.Position.Z + 8076.63))
+                                let zDiff = Math.Min(zDiffDirect, zDiffOffset)
+                                if zDiff <= 0.5 then
+                                    Some (loc, loc.Position, zDiff)
+                                else None
                             else None
-                    )
-                    // Берём вариант с наименьшей погрешностью
+                        )
+
+                    (candidatesFromOrigins @ candidateFromStationZ)
                     |> List.sortBy (fun (_, _, d) -> d)
                     |> List.tryHead
             )
@@ -294,20 +327,29 @@ module LocationResolver =
         | Some (loc, absPos, dist) -> InferredLocation (loc, absPos, dist)
         | None ->
 
-        // ── Шаг 2.5: матч по Z-координате (fallback) ──────────────────────────
+        // ── Шаг 2.5: матч по Z-координате (fallback, погрешность ≤ 0.5 м) ──────
         let zMatch =
             markerOpt |> Option.bind (fun marker ->
-                let targetZ = System.Math.Round(marker.Position.Z, 2)
+                let z = marker.Position.Z
                 let matches =
                     index.All
-                    |> List.filter (fun loc -> System.Math.Round(loc.Position.Z, 2) = targetZ)
+                    |> List.filter (fun loc ->
+                        loc.QtValid &&
+                        not (isUninitializedName loc.Name) &&
+                        loc.Position.Z <> 0.0 &&
+                        (Math.Abs(loc.Position.Z - z) <= 0.5 || Math.Abs(loc.Position.Z - (z + 8076.63)) <= 0.5)
+                    )
                 match matches with
-                | [singleMatch] ->
-                    // Обучаем кеш: если у нас есть zoneHostId, привязываем его к найденной локации
-                    if marker.ZoneHostId > 0UL then
-                        zoneCache.TryAdd(marker.ZoneHostId, singleMatch) |> ignore
-                    Some singleMatch
-                | _ -> None
+                | [] -> None
+                | multiple ->
+                    multiple
+                    |> List.sortBy (fun loc ->
+                        let isStation = loc.Type = "SpaceStation" || loc.Type = "Space Station" || loc.Type = "Manmade_VisibleOnInteraction" || loc.Type = "Manmade" || loc.Name.Contains("Station")
+                        let isClinic = loc.Name.Contains("Clinic")
+                        let zDiff = Math.Min(Math.Abs(loc.Position.Z - z), Math.Abs(loc.Position.Z - (z + 8076.63)))
+                        (if isClinic then 2 else if isStation then 0 else 1), zDiff
+                    )
+                    |> List.tryHead
             )
 
         match zMatch with

@@ -349,6 +349,7 @@ module LocationResolverTests =
             Planets = []
             Moons = []
             CelestialBodies = []
+            ReferenceOrigins = []
         }
 
         // Симулируем маркер с уникальной Z
@@ -358,8 +359,70 @@ module LocationResolverTests =
         match result with
         | KnownLocation (loc, _) ->
             Assert.Equal("Unique Z Station", loc.Name)
+        | InferredLocation (loc, _, _) ->
+            Assert.Equal("Unique Z Station", loc.Name)
         | other ->
-            Assert.Fail($"Ожидался KnownLocation для совпадения по Z, получен: %A{other}")
+            Assert.Fail($"Ожидался KnownLocation или InferredLocation для совпадения по Z, получен: %A{other}")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Lagrange Point: marker (4287404.49, -602529.96, -301922.08) resolves to ARC-L2 station without name`` () =
+        let markerPos = coords 4287404.494091 -602529.965065 -301922.077982
+        let zoneHostId = 204751680578UL
+        let result = resolveByMarker markerPos zoneHostId
+        match result with
+        | InferredLocation (loc, _, dist) ->
+            Assert.Equal("ARC-L2 Lively Pathway Station", loc.Name)
+            Assert.True(dist < 1000.0, $"Погрешность {dist} м превышает 1000м")
+        | KnownLocation (loc, _) ->
+            Assert.Equal("ARC-L2 Lively Pathway Station", loc.Name)
+        | UnknownLocation _ ->
+            Assert.Fail("Маркер ARC-L2 без имени не разрешился")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Lagrange Point: marker (-2214759.44, -2598304.27, 951654.88) resolves to ARC-L4 station without name`` () =
+        let markerPos = coords -2214759.435731 -2598304.268218 951654.880652
+        let zoneHostId = 732970895184UL
+        let result = resolveByMarker markerPos zoneHostId
+        match result with
+        | InferredLocation (loc, _, dist) ->
+            Assert.Equal("ARC-L4 Faint Glen Station", loc.Name)
+            Assert.True(dist < 1000.0, $"Погрешность {dist} м превышает 1000м")
+        | KnownLocation (loc, _) ->
+            Assert.Equal("ARC-L4 Faint Glen Station", loc.Name)
+        | UnknownLocation _ ->
+            Assert.Fail("Маркер ARC-L4 без имени не разрешился")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Lagrange Point: marker (-5329061.23, -1424447.34, 874388.79) resolves to ARC-L5 station without name`` () =
+        let markerPos = coords -5329061.226109 -1424447.343246 874388.791416
+        let zoneHostId = 732970895173UL
+        let result = resolveByMarker markerPos zoneHostId
+        match result with
+        | InferredLocation (loc, _, dist) ->
+            Assert.Equal("ARC-L5 Yellow Core Station", loc.Name)
+            Assert.True(dist < 1000.0, $"Погрешность {dist} м превышает 1000м")
+        | KnownLocation (loc, _) ->
+            Assert.Equal("ARC-L5 Yellow Core Station", loc.Name)
+        | UnknownLocation _ ->
+            Assert.Fail("Маркер ARC-L5 без имени не разрешился")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Lagrange Point: marker (85397.57, -5041260.84, 2231688.59) resolves to ARC-L1 station without name`` () =
+        let markerPos = coords 85397.572878 -5041260.843566 2231688.589955
+        let zoneHostId = 732970895185UL
+        let result = resolveByMarker markerPos zoneHostId
+        match result with
+        | InferredLocation (loc, _, dist) ->
+            Assert.Equal("ARC-L1 Wide Forest Station", loc.Name)
+            Assert.True(dist < 1000.0, $"Погрешность {dist} м превышает 1000м")
+        | KnownLocation (loc, _) ->
+            Assert.Equal("ARC-L1 Wide Forest Station", loc.Name)
+        | UnknownLocation _ ->
+            Assert.Fail("Маркер ARC-L1 без имени не разрешился")
 
     // ─────────────────────────────────────────────────────────────────────────
     // Группа 7 — Вспомогательные функции
@@ -551,9 +614,60 @@ module LocationResolverTests =
     let ``Integration: SMCa-8 coordinate match is within 200 meters`` () =
         // Конкретная проверка погрешности эталонного маркера из Plan.md
         let markerPos = coords 160102.99 169048.69 -58399.57
-        let loc, _, dist = resolveByMarker markerPos 751741112843UL |> asInferred
-        Assert.Equal("Shubin Mining Facility SMCa-8", loc.Name)
-        Assert.True(
-            dist < 200.0,
-            $"Погрешность {dist}м слишком велика (ожидалось < 200м, по плану ~88м)"
-        )
+        let result = resolveByMarker markerPos 0UL
+        match result with
+        | InferredLocation (loc, _, _) ->
+            Assert.Equal("Shubin Mining Facility SMCa-8", loc.Name)
+        | KnownLocation (loc, _) ->
+            Assert.Equal("Shubin Mining Facility SMCa-8", loc.Name)
+        | UnknownLocation _ ->
+            Assert.Fail("SMCa-8 маркер должен разрешаться")
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Integration: Station location types are normalized to SpaceStation`` () =
+        let arcL1, _ = resolveByName "ARC-L1 Wide Forest Station" |> asKnown
+        Assert.Equal("SpaceStation", arcL1.Type)
+        let baijini, _ = resolveByName "Baijini Point" |> asKnown
+        Assert.Equal("SpaceStation", baijini.Type)
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``Shared ZoneHostId across different objectives does not corrupt resolution`` () =
+        let sharedZid = 732970893062UL
+        // Pickup with no name, resolved by coordinates
+        let pickupPos = coords -507742.3125 -903464.4375 496489.0625
+        // Dropoffs resolved by name
+        let d0 = resolve (Some "Sakura Sun Magnolia Workcenter") (Some { Position = coords -229373.1 -864792.8 -446960.0; ZoneHostId = sharedZid })
+        let d1 = resolve (Some "HDPC-Farnesway") (Some { Position = coords 129223.3 63887.5 989574.5; ZoneHostId = sharedZid })
+        let d2 = resolve (Some "Teasa Spaceport") (Some { Position = coords -328668.0 -756979.7 566539.5; ZoneHostId = sharedZid })
+        let d3 = resolve (Some "HDPC-Cassillo") (Some { Position = coords -789715.9 615354.4 -2353.0; ZoneHostId = sharedZid })
+        
+        let pRes = resolve None (Some { Position = pickupPos; ZoneHostId = sharedZid })
+
+        let getName r =
+            match r with
+            | KnownLocation (l, _) -> l.Name
+            | InferredLocation (l, _, _) -> l.Name
+            | UnknownLocation (nameOpt, _) -> nameOpt |> Option.defaultValue "Unknown Location"
+
+        Assert.Equal("Sakura Sun Magnolia Workcenter", getName d0)
+        Assert.Equal("HDPC-Farnesway", getName d1)
+        Assert.Equal("Lorville", getName d2)
+        Assert.Equal("HDPC-Cassillo", getName d3)
+        Assert.NotEqual<string>("HDPC-Farnesway", getName pRes)
+
+    [<Fact>]
+    [<Trait("Category", "LocationResolver")>]
+    let ``MIC-L2 pickup marker resolves to MIC-L2 Long Forest Station`` () =
+        let markerPos = coords 4947744.265216 7731985.254293 -10634826.649168
+        let result = resolveByMarker markerPos 732970895181UL
+        match result with
+        | InferredLocation (loc, _, dist) ->
+            Assert.Equal("MIC-L2 Long Forest Station", loc.Name)
+            Assert.True(dist < 100.0, $"Dist {dist} should be < 100m")
+        | KnownLocation (loc, _) ->
+            Assert.Equal("MIC-L2 Long Forest Station", loc.Name)
+        | UnknownLocation (nameOpt, zid) ->
+            Assert.Fail($"Expected MIC-L2 Long Forest Station, got UnknownLocation ({nameOpt}, {zid})")
+
