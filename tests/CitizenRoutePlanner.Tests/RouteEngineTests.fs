@@ -13,6 +13,7 @@ module RouteEngineTests =
         CelestialBodies = []
         Planets = []
         Moons = []
+        ReferenceOrigins = []
     }
     
     let createLocation uuid name lType position =
@@ -52,6 +53,7 @@ module RouteEngineTests =
             CargoType = None
             DestinationName = Some loc.Name
             Status = Pending
+            PairedObjectiveId = None
         }
 
     let createMission mId mType scope objectives =
@@ -194,3 +196,145 @@ module RouteEngineTests =
         Assert.Equal(2, route.Stops.Length)
         Assert.Equal(7, route.Stops.[0].Actions.Length)
         Assert.Equal(7, route.Stops.[1].Actions.Length)
+
+    [<Fact>]
+    [<Trait("Category", "RouteEngine")>]
+    let ``Dropoff at player location cannot precede pending pickup`` () =
+        let mId = Guid.NewGuid()
+        // Player is at planetA. Dropoff is at planetA. Pickup is at planetB (far away).
+        // Algorithm MUST choose Pickup at planetB before Dropoff at planetA.
+        let p = createObjective "pickup_0" Pickup planetB (Some 10)
+        let d = createObjective "dropoff_0" Dropoff planetA (Some 10)
+        let mission = createMission mId DirectHaul (System) [p; d]
+        
+        let appState = {
+            Missions = Map.ofList [(mId, mission)]
+            CurrentRoute = None
+            PlayerLocation = Some planetA
+            QuantumDestination = None
+            Ship = Some { RouteEngine.defaultShip with CargoCapacity = 288 }
+            CurrentCargoScu = 0
+            QuantumDrive = None
+        }
+        
+        let routeOpt = RouteEngine.calculateRoute appState testLocations
+        Assert.True(routeOpt.IsSome)
+        let route = routeOpt.Value
+        Assert.Equal(2, route.Stops.Length)
+        Assert.Equal(planetB.Uuid, route.Stops.[0].Location.Uuid)
+        Assert.Equal(planetA.Uuid, route.Stops.[1].Location.Uuid)
+
+    [<Fact>]
+    [<Trait("Category", "RouteEngine")>]
+    let ``MultiHaul mission enforces individual pickup dependencies`` () =
+        let mId = Guid.NewGuid()
+        let p0 = createObjective "pickup_0" Pickup outpostA1 (Some 10)
+        let d0 = createObjective "dropoff_0" Dropoff outpostA2 (Some 10)
+        let p1 = createObjective "pickup_1" Pickup planetB (Some 10)
+        let d1 = createObjective "dropoff_1" Dropoff outpostA1 (Some 10)
+        
+        let mission = createMission mId (MultiHaul 2) (System) [p0; d0; p1; d1]
+        
+        let appState = {
+            Missions = Map.ofList [(mId, mission)]
+            CurrentRoute = None
+            PlayerLocation = Some planetA
+            QuantumDestination = None
+            Ship = Some { RouteEngine.defaultShip with CargoCapacity = 288 }
+            CurrentCargoScu = 0
+            QuantumDrive = None
+        }
+        
+        let routeOpt = RouteEngine.calculateRoute appState testLocations
+        Assert.True(routeOpt.IsSome)
+        let route = routeOpt.Value
+        
+        let allActions = route.Stops |> List.collect (fun s -> s.Actions)
+        let indexOfAction objId =
+            allActions |> List.findIndex (fun a ->
+                match a with
+                | PickupCargo (_, id, _, _) | DropoffCargo (_, id, _, _)
+                | PickupPackage (_, id, _) | DropoffPackage (_, id, _)
+                | NavTo (_, id) -> id = objId
+            )
+        
+        Assert.True(indexOfAction "pickup_0" < indexOfAction "dropoff_0")
+        Assert.True(indexOfAction "pickup_1" < indexOfAction "dropoff_1")
+
+    [<Fact>]
+    [<Trait("Category", "RouteEngine")>]
+    let ``Mission with single pickup exceeding ship capacity is excluded from route`` () =
+        let mId = Guid.NewGuid()
+        let pickup = createObjective "pickup_0" Pickup outpostA1 (Some 10)
+        let dropoff = createObjective "dropoff_0" Dropoff outpostA2 (Some 10)
+        let mission = createMission mId (DirectHaul) (Local 1) [pickup; dropoff]
+
+        // Ship capacity = 8 (less than pickup 10 SCU)
+        let appState = {
+            Missions = Map.ofList [(mId, mission)]
+            CurrentRoute = None
+            PlayerLocation = Some planetA
+            QuantumDestination = None
+            Ship = Some { RouteEngine.defaultShip with CargoCapacity = 8 }
+            CurrentCargoScu = 0
+            QuantumDrive = None
+        }
+
+        let routeOpt = RouteEngine.calculateRoute appState testLocations
+        Assert.True(routeOpt.IsNone)
+
+    [<Fact>]
+    [<Trait("Category", "RouteEngine")>]
+    let ``Mission with multiple pickups each fitting ship capacity is included even if sum exceeds capacity`` () =
+        let mId = Guid.NewGuid()
+        let p0 = createObjective "pickup_0" Pickup outpostA1 (Some 6)
+        let d0 = createObjective "dropoff_0" Dropoff outpostA2 (Some 6)
+        let p1 = createObjective "pickup_1" Pickup planetB (Some 6)
+        let d1 = createObjective "dropoff_1" Dropoff outpostA1 (Some 6)
+        let mission = createMission mId (MultiHaul 2) System [p0; d0; p1; d1]
+
+        // Ship capacity = 8 (each pickup is 6 SCU, sum is 12 SCU)
+        let appState = {
+            Missions = Map.ofList [(mId, mission)]
+            CurrentRoute = None
+            PlayerLocation = Some planetA
+            QuantumDestination = None
+            Ship = Some { RouteEngine.defaultShip with CargoCapacity = 8 }
+            CurrentCargoScu = 0
+            QuantumDrive = None
+        }
+
+        let routeOpt = RouteEngine.calculateRoute appState testLocations
+        Assert.True(routeOpt.IsSome)
+
+    [<Fact>]
+    [<Trait("Category", "RouteEngine")>]
+    let ``Route estimates handle zero vectors and unknown locations without producing NaN or Infinity`` () =
+        let mId = Guid.NewGuid()
+        let zeroLoc = createLocation (Guid.NewGuid()) "Unknown Location (0)" "Point of Interest" { X = 0.0; Y = 0.0; Z = 0.0 }
+        let p0 = createObjective "pickup_0" Pickup zeroLoc (Some 2)
+        let d0 = createObjective "dropoff_0" Dropoff zeroLoc (Some 2)
+        let mission = createMission mId DirectHaul System [p0; d0]
+
+        let appState = {
+            Missions = Map.ofList [(mId, mission)]
+            CurrentRoute = None
+            PlayerLocation = Some zeroLoc
+            QuantumDestination = None
+            Ship = Some { RouteEngine.defaultShip with Mass = 0.0 } // Edge case mass 0
+            CurrentCargoScu = 0
+            QuantumDrive = None
+        }
+
+        let routeOpt = RouteEngine.calculateRoute appState testLocations
+        Assert.True(routeOpt.IsSome)
+        let route = routeOpt.Value
+        Assert.False(Double.IsNaN(route.TotalEstimatedTime))
+        Assert.False(Double.IsInfinity(route.TotalEstimatedTime))
+        for stop in route.Stops do
+            Assert.False(Double.IsNaN(stop.TravelTimeEstimate))
+            Assert.False(Double.IsInfinity(stop.TravelTimeEstimate))
+            Assert.False(Double.IsNaN(stop.ActionTimeEstimate))
+            Assert.False(Double.IsInfinity(stop.ActionTimeEstimate))
+
+

@@ -35,17 +35,25 @@ module RouteEngine =
         else 250_000.0
 
     let calculateKinematicTime (distance: float) (stats: QuantumModeStats) =
-        let a_sum = stats.StageOneAccel + stats.StageTwoAccel
-        let accelTime = (2.0 * stats.DriveSpeed) / a_sum
-        let accelDist = (pown stats.DriveSpeed 2) / a_sum
-        
-        if distance > 2.0 * accelDist then
-            let cruiseDist = distance - 2.0 * accelDist
-            let cruiseTime = cruiseDist / stats.DriveSpeed
-            accelTime * 2.0 + cruiseTime
+        if Double.IsNaN(distance) || Double.IsInfinity(distance) || distance <= 0.0 then 0.0
         else
-            let a_avg = a_sum / 2.0
-            2.0 * sqrt(distance / a_avg)
+            let a_sum = stats.StageOneAccel + stats.StageTwoAccel
+            if a_sum <= 0.0 || stats.DriveSpeed <= 0.0 then 0.0
+            else
+                let accelTime = (2.0 * stats.DriveSpeed) / a_sum
+                let accelDist = (pown stats.DriveSpeed 2) / a_sum
+                
+                if distance > 2.0 * accelDist then
+                    let cruiseDist = distance - 2.0 * accelDist
+                    let cruiseTime = cruiseDist / stats.DriveSpeed
+                    let res = accelTime * 2.0 + cruiseTime
+                    if Double.IsNaN(res) || Double.IsInfinity(res) then 0.0 else res
+                else
+                    let a_avg = a_sum / 2.0
+                    if a_avg <= 0.0 then 0.0
+                    else
+                        let res = 2.0 * sqrt(distance / a_avg)
+                        if Double.IsNaN(res) || Double.IsInfinity(res) then 0.0 else res
 
     type AtmoProfile = {
         Gravity: float // m/s^2
@@ -71,37 +79,42 @@ module RouteEngine =
     }
 
     let calculateTakeoffTime (profile: AtmoProfile) (ship: ShipStats) =
-        if profile.AtmoHeight <= 0.0 then 0.0
+        if profile.AtmoHeight <= 0.0 || ship.Mass <= 0.0 then 0.0
         else
             // a_up = (T / m) * eff - g
             let a_up = (ship.MainThrust / ship.Mass) * profile.AtmoEfficiency - profile.Gravity
-            if a_up <= 0.0 then 9999.0 // Cannot takeoff
+            if Double.IsNaN(a_up) || a_up <= 0.0 then 9999.0 // Cannot takeoff
             else
                 let t_accel = ship.MaxSpeed / a_up
                 let d_accel = 0.5 * a_up * t_accel * t_accel
-                if d_accel >= profile.AtmoHeight then
-                    sqrt (2.0 * profile.AtmoHeight / a_up)
-                else
-                    let d_cruise = profile.AtmoHeight - d_accel
-                    let t_cruise = d_cruise / ship.MaxSpeed
-                    t_accel + t_cruise
+                let res =
+                    if d_accel >= profile.AtmoHeight then
+                        sqrt (2.0 * profile.AtmoHeight / a_up)
+                    else
+                        let d_cruise = profile.AtmoHeight - d_accel
+                        let t_cruise = d_cruise / ship.MaxSpeed
+                        t_accel + t_cruise
+                if Double.IsNaN(res) || Double.IsInfinity(res) then 0.0 else res
 
     let calculateLandingTime (profile: AtmoProfile) (ship: ShipStats) =
-        if profile.AtmoHeight <= 0.0 then 0.0
+        if profile.AtmoHeight <= 0.0 || ship.Mass <= 0.0 then 0.0
         else
             // a_down = (T / m) + g
             let a_down = (ship.MainThrust / ship.Mass) + profile.Gravity
-            let t_accel = ship.MaxSpeed / a_down
-            let d_accel = 0.5 * a_down * t_accel * t_accel
-            
-            // Braking via NAV -> SCM drop. Drops max speed to ~200 in ~5 seconds.
-            if profile.AtmoHeight <= d_accel then
-                sqrt (2.0 * profile.AtmoHeight / a_down) + 5.0
+            if Double.IsNaN(a_down) || a_down <= 0.0 then 0.0
             else
-                let d_cruise = profile.AtmoHeight - d_accel - 1000.0 // 1km for braking buffer
-                let cruiseDist = max 0.0 d_cruise
-                let t_cruise = cruiseDist / ship.MaxSpeed
-                t_accel + t_cruise + 10.0 // 10 seconds for NAV drop + touchdown
+                let t_accel = ship.MaxSpeed / a_down
+                let d_accel = 0.5 * a_down * t_accel * t_accel
+                let res =
+                    // Braking via NAV -> SCM drop. Drops max speed to ~200 in ~5 seconds.
+                    if profile.AtmoHeight <= d_accel then
+                        sqrt (2.0 * profile.AtmoHeight / a_down) + 5.0
+                    else
+                        let d_cruise = profile.AtmoHeight - d_accel - 1000.0 // 1km for braking buffer
+                        let cruiseDist = max 0.0 d_cruise
+                        let t_cruise = cruiseDist / ship.MaxSpeed
+                        t_accel + t_cruise + 10.0 // 10 seconds for NAV drop + touchdown
+                if Double.IsNaN(res) || Double.IsInfinity(res) then 0.0 else res
 
     let estimateTravelTime (fromLoc: LocationInfo) (toLoc: LocationInfo) (locations: LocationIndex) (appState: AppState) : float =
         if fromLoc.Uuid = toLoc.Uuid then 0.0
@@ -112,7 +125,7 @@ module RouteEngine =
             let qd = appState.QuantumDrive |> Option.defaultValue defaultHemeraDrive
             
             let atmoSource = defaultArg fromBody fromLoc
-            let isFromSpaceStation = fromLoc.Type = "Station" || fromLoc.Type = "SpaceStation" || fromLoc.Name.Contains("Station") || fromLoc.Name.Contains("Port ") || fromLoc.Name.Contains(" Baijini") || fromLoc.Name.Contains("Everus") || fromLoc.Name.Contains("Seraphim")
+            let isFromSpaceStation = fromLoc.Type = "SpaceStation" || fromLoc.Type = "Space Station" || fromLoc.Type = "Station" || fromLoc.Type = "Manmade_VisibleOnInteraction" || fromLoc.Type = "Manmade" || fromLoc.Name.Contains("Station") || fromLoc.Name.Contains("Port ") || fromLoc.Name.Contains(" Baijini") || fromLoc.Name.Contains("Everus") || fromLoc.Name.Contains("Seraphim")
             
             let atmoExit = 
                 if isFromSpaceStation then 0.0
@@ -121,7 +134,7 @@ module RouteEngine =
                     calculateTakeoffTime profile ship
             
             let atmoDest = defaultArg toBody toLoc
-            let isToSpaceStation = toLoc.Type = "Station" || toLoc.Type = "SpaceStation" || toLoc.Name.Contains("Station") || toLoc.Name.Contains("Port ") || toLoc.Name.Contains(" Baijini") || toLoc.Name.Contains("Everus") || toLoc.Name.Contains("Seraphim")
+            let isToSpaceStation = toLoc.Type = "SpaceStation" || toLoc.Type = "Space Station" || toLoc.Type = "Station" || toLoc.Type = "Manmade_VisibleOnInteraction" || toLoc.Type = "Manmade" || toLoc.Name.Contains("Station") || toLoc.Name.Contains("Port ") || toLoc.Name.Contains(" Baijini") || toLoc.Name.Contains("Everus") || toLoc.Name.Contains("Seraphim")
             
             let atmoEnter =
                 if isToSpaceStation then 0.0
@@ -153,14 +166,19 @@ module RouteEngine =
                     let mag2 = sqrt (rx2*rx2 + ry2*ry2 + rz2*rz2)
                     let dot = rx1*rx2 + ry1*ry2 + rz1*rz2
                     
-                    let cosTheta = dot / (mag1 * mag2)
-                    let cosThetaClamped = max -1.0 (min 1.0 cosTheta)
-                    let theta = acos cosThetaClamped
-                    
-                    let radius = getPlanetRadius body.Name body.Type
-                    let arcDistance = radius * theta
-                    
-                    qtTime <- calculateKinematicTime arcDistance qd.Spline + qd.Spline.SpoolUpTime
+                    let den = mag1 * mag2
+                    if den <= 0.0 || Double.IsNaN(den) || Double.IsInfinity(den) then
+                        qtTime <- 0.0
+                    else
+                        let cosTheta = dot / den
+                        let cosThetaClamped = max -1.0 (min 1.0 cosTheta)
+                        let theta = acos cosThetaClamped
+                        let thetaValid = if Double.IsNaN(theta) || Double.IsInfinity(theta) then 0.0 else theta
+                        
+                        let radius = getPlanetRadius body.Name body.Type
+                        let arcDistance = radius * thetaValid
+                        
+                        qtTime <- calculateKinematicTime arcDistance qd.Spline + qd.Spline.SpoolUpTime
             elif fromBody.IsSome && toBody.IsSome && LocationResolver.sharePlanet fromBody.Value toBody.Value locations then
                 // SamePlanetMoonsQT
                 let dist = LocationResolver.euclideanDistance fromLoc.Position toLoc.Position
@@ -174,7 +192,8 @@ module RouteEngine =
                 qtTime <- calculateKinematicTime dist qd.Standard + qd.Standard.SpoolUpTime
 
             let totalTime = atmoExit + qtTime + atmoEnter
-            totalTime
+            if Double.IsNaN(totalTime) || Double.IsInfinity(totalTime) then 0.0
+            else max 0.0 totalTime
 
 
     // Внутренние типы для алгоритма
@@ -183,6 +202,8 @@ module RouteEngine =
         Action: RouteAction
         IsPickup: bool
         MissionId: Guid
+        ObjectiveId: string
+        RequiredPickupObjectiveIds: string list
         Scu: int
     }
 
@@ -215,12 +236,37 @@ module RouteEngine =
         }
 
     let private buildNodes (appState: AppState) : RouteNode list =
+        let shipCapOpt =
+            match appState.Ship with
+            | Some s when s.CargoCapacity > 0 -> Some s.CargoCapacity
+            | _ -> None
+
         appState.Missions.Values
         |> Seq.filter (fun m -> m.Status = Active)
+        |> Seq.filter (fun m ->
+            match shipCapOpt with
+            | None -> true
+            | Some cap ->
+                let hasOversizedPickup =
+                    m.Objectives
+                    |> List.exists (fun obj ->
+                        obj.Type = Pickup &&
+                        (obj.Status = Pending || obj.Status = InProgress) &&
+                        obj.ScuAmount.IsSome &&
+                        obj.ScuAmount.Value > cap
+                    )
+                not hasOversizedPickup
+        )
         |> Seq.collect (fun m ->
-            m.Objectives
-            |> Seq.filter (fun obj -> obj.Status = Pending || obj.Status = InProgress)
-            |> Seq.choose (fun obj ->
+            let pendingObjs = 
+                m.Objectives 
+                |> List.filter (fun obj -> obj.Status = Pending || obj.Status = InProgress)
+            
+            let pendingPickups = 
+                pendingObjs |> List.filter (fun obj -> obj.Type = Pickup)
+
+            pendingObjs
+            |> List.choose (fun obj ->
                 let loc = 
                     match obj.ResolvedLocation with
                     | Some l -> l
@@ -236,12 +282,34 @@ module RouteEngine =
                     | _, Pickup -> PickupCargo (m.MissionId, obj.ObjectiveId, obj.ScuAmount, obj.CargoType)
                     | _, Dropoff -> DropoffCargo (m.MissionId, obj.ObjectiveId, obj.ScuAmount, obj.CargoType)
                     | _, Nav -> NavTo (m.MissionId, obj.ObjectiveId)
+
+                let requiredPickups =
+                    if isPickup || obj.Type = Nav then []
+                    else
+                        let pairedIdOpt = 
+                            obj.PairedObjectiveId
+                            |> Option.filter (fun pId -> pendingPickups |> List.exists (fun p -> p.ObjectiveId = pId))
+                        
+                        match pairedIdOpt with
+                        | Some pId -> [pId]
+                        | None ->
+                            let objSuffix = MissionManager.extractSuffix obj.ObjectiveId
+                            let matchingPickupOpt = 
+                                if objSuffix <> "" then
+                                    pendingPickups |> List.tryFind (fun p -> MissionManager.extractSuffix p.ObjectiveId = objSuffix)
+                                else None
+                            match matchingPickupOpt with
+                            | Some p -> [p.ObjectiveId]
+                            | None ->
+                                pendingPickups |> List.map (fun p -> p.ObjectiveId)
                 
                 Some {
                     Location = loc
                     Action = action
                     IsPickup = isPickup
                     MissionId = m.MissionId
+                    ObjectiveId = obj.ObjectiveId
+                    RequiredPickupObjectiveIds = requiredPickups
                     Scu = scu
                 }
             )
@@ -251,25 +319,31 @@ module RouteEngine =
     let private isValidRoute (nodes: RouteNode list) (capacity: int) (currentCargo: int) : bool =
         let mutable cargo = currentCargo
         let mutable valid = true
-        let pickedUp = System.Collections.Generic.HashSet<Guid>()
+        let pickedUp = System.Collections.Generic.HashSet<string>()
         
         for node in nodes do
             if valid then
-                if node.IsPickup then
-                    pickedUp.Add(node.MissionId) |> ignore
-                    cargo <- cargo + node.Scu
-                    if cargo > capacity then valid <- false
+                let isDropoffAllowed = 
+                    node.RequiredPickupObjectiveIds 
+                    |> List.forall (fun reqId -> pickedUp.Contains reqId)
+                
+                if not isDropoffAllowed then
+                    valid <- false
                 else
-                    // Dropoff without pickup? (Assuming we might already have it if not in pending pickups)
-                    cargo <- cargo - node.Scu
-                    if cargo < 0 then cargo <- 0 // Just in case
+                    if node.IsPickup then
+                        pickedUp.Add(node.ObjectiveId) |> ignore
+                        cargo <- cargo + node.Scu
+                        if cargo > capacity then valid <- false
+                    else
+                        cargo <- cargo - node.Scu
+                        if cargo < 0 then cargo <- 0
         valid
 
     let private estimateActionTime (loc: LocationInfo) (actions: RouteAction list) : float =
         if List.isEmpty actions then 0.0
         else
             let isDC = loc.Name.Contains("Distribution Center") || loc.Name.Contains("Inventory Center")
-            let isSpaceStation = loc.Type = "Station" || loc.Type = "SpaceStation" || loc.Name.Contains("Station") || loc.Name.Contains("Port ") || loc.Name.Contains(" Baijini") || loc.Name.Contains("Everus") || loc.Name.Contains("Seraphim")
+            let isSpaceStation = loc.Type = "SpaceStation" || loc.Type = "Space Station" || loc.Type = "Station" || loc.Type = "Manmade_VisibleOnInteraction" || loc.Type = "Manmade" || loc.Name.Contains("Station") || loc.Name.Contains("Port ") || loc.Name.Contains(" Baijini") || loc.Name.Contains("Everus") || loc.Name.Contains("Seraphim")
             let isOutpost = loc.Type = "Outpost" || loc.Type = "Mining" || loc.Name.Contains("Outpost") || loc.Name.Contains("Shelter")
 
             let mutable baseApproach = 0.0
@@ -296,7 +370,8 @@ module RouteEngine =
                     cargoLoading <- cargoLoading + (float (defaultArg scuOpt 0) * 5.0)
                 | _ -> ()
 
-            baseApproach + actionTime + cargoLoading
+            let total = baseApproach + actionTime + cargoLoading
+            if Double.IsNaN(total) || Double.IsInfinity(total) then 0.0 else total
 
     let private groupActionsToStops (nodes: RouteNode list) (startLocOpt: LocationInfo option) (locations: LocationIndex) (appState: AppState) : RouteStop list =
         if List.isEmpty nodes then []
@@ -304,7 +379,6 @@ module RouteEngine =
             let mutable currentLoc = startLocOpt
             let stops = ResizeArray<RouteStop>()
             
-            // Группировка по локациям идущим подряд
             let mutable i = 0
             while i < nodes.Length do
                 let loc = nodes.[i].Location
@@ -338,29 +412,19 @@ module RouteEngine =
     let private solveBranchAndBound (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (appState: AppState) =
         let bestRoute = ref None
         let bestCost = ref Double.MaxValue
-        let n = nodes.Length
-        
-        // Предобработка: какие dropoff требуют pickup в этом же наборе
-        let requiresPickup = 
-            nodes 
-            |> List.filter (fun x -> not x.IsPickup)
-            |> List.map (fun d -> 
-                d.MissionId, nodes |> List.exists (fun p -> p.IsPickup && p.MissionId = d.MissionId))
-            |> Map.ofList
 
-        let rec backtrack (currentPath: RouteNode list) (remaining: RouteNode list) (currentCost: float) (lastLoc: LocationInfo option) (cargo: int) (pickedUp: Set<Guid>) =
+        let rec backtrack (currentPath: RouteNode list) (remaining: RouteNode list) (currentCost: float) (lastLoc: LocationInfo option) (cargo: int) (pickedUp: Set<string>) =
             if currentCost >= bestCost.Value then () // Prune
             elif List.isEmpty remaining then
                 bestCost.Value <- currentCost
                 bestRoute.Value <- Some (List.rev currentPath)
             else
                 for node in remaining do
-                    let isDropoffButNeedsPickup = 
-                        not node.IsPickup && 
-                        (requiresPickup |> Map.tryFind node.MissionId |> Option.defaultValue false) && 
-                        not (Set.contains node.MissionId pickedUp)
+                    let isDropoffAllowed = 
+                        node.RequiredPickupObjectiveIds 
+                        |> List.forall (fun reqId -> Set.contains reqId pickedUp)
                     
-                    if not isDropoffButNeedsPickup then
+                    if isDropoffAllowed then
                         let newCargo = if node.IsPickup then cargo + node.Scu else cargo - node.Scu
                         if newCargo <= capacity then
                             let travelTime = 
@@ -368,13 +432,10 @@ module RouteEngine =
                                 | Some l -> estimateTravelTime l node.Location locations appState
                                 | None -> 0.0
                             
-                            // Note: Action time is not part of route optimization path cost, but we could add it.
-                            // Adding it to cost doesn't change optimization much since action time at a node is constant regardless of path.
-                            // But for total time it is important. Let's keep it simple for TSP cost.
                             let nextCost = currentCost + travelTime
                             if nextCost < bestCost.Value then
                                 let nextRemaining = remaining |> List.filter (fun x -> x <> node)
-                                let nextPickedUp = if node.IsPickup then Set.add node.MissionId pickedUp else pickedUp
+                                let nextPickedUp = if node.IsPickup then Set.add node.ObjectiveId pickedUp else pickedUp
                                 backtrack (node :: currentPath) nextRemaining nextCost (Some node.Location) newCargo nextPickedUp
 
         backtrack [] nodes 0.0 startLoc currentCargo Set.empty
@@ -382,39 +443,35 @@ module RouteEngine =
 
     // Greedy + 2-opt для большого числа точек
     let private solveGreedy (nodes: RouteNode list) (startLoc: LocationInfo option) (capacity: int) (currentCargo: int) (locations: LocationIndex) (appState: AppState) =
-        // Упрощенный жадный алгоритм
         let mutable currentLoc = startLoc
         let mutable cargo = currentCargo
         let mutable remaining = nodes
         let route = ResizeArray<RouteNode>()
-        let pickedUp = System.Collections.Generic.HashSet<Guid>()
-        
-        // Для dropoff проверяем, нужен ли pickup
-        let requiresPickup = 
-            nodes 
-            |> List.filter (fun x -> not x.IsPickup)
-            |> List.map (fun d -> 
-                d.MissionId, nodes |> List.exists (fun p -> p.IsPickup && p.MissionId = d.MissionId))
-            |> Map.ofList
+        let pickedUp = System.Collections.Generic.HashSet<string>()
 
         while not (List.isEmpty remaining) do
-            // Найти ближайшую допустимую ноду
             let validNodes = 
                 remaining |> List.filter (fun node ->
-                    let isDropoffButNeedsPickup = 
-                        not node.IsPickup && 
-                        (requiresPickup |> Map.tryFind node.MissionId |> Option.defaultValue false) && 
-                        not (pickedUp.Contains node.MissionId)
+                    let isDropoffAllowed = 
+                        node.RequiredPickupObjectiveIds 
+                        |> List.forall (fun reqId -> pickedUp.Contains reqId)
                     
                     let newCargo = if node.IsPickup then cargo + node.Scu else cargo - node.Scu
-                    not isDropoffButNeedsPickup && newCargo <= capacity
+                    isDropoffAllowed && newCargo <= capacity
                 )
             
             if List.isEmpty validNodes then
-                // Заглушка на случай тупика (например capacity слишком мал)
-                let node = List.head remaining
-                route.Add(node)
-                remaining <- List.tail remaining
+                // Заглушка на крайний случай: выбираем любой доступный Pickup или первый узел
+                let fallbackNode = 
+                    remaining 
+                    |> List.tryFind (fun n -> n.IsPickup) 
+                    |> Option.defaultValue (List.head remaining)
+                route.Add(fallbackNode)
+                if fallbackNode.IsPickup then pickedUp.Add(fallbackNode.ObjectiveId) |> ignore
+                cargo <- if fallbackNode.IsPickup then cargo + fallbackNode.Scu else cargo - fallbackNode.Scu
+                if cargo < 0 then cargo <- 0
+                currentLoc <- Some fallbackNode.Location
+                remaining <- remaining |> List.filter (fun x -> x <> fallbackNode)
             else
                 let bestNode = 
                     validNodes |> List.minBy (fun n -> 
@@ -423,7 +480,7 @@ module RouteEngine =
                         | None -> 0.0)
                 
                 route.Add(bestNode)
-                if bestNode.IsPickup then pickedUp.Add(bestNode.MissionId) |> ignore
+                if bestNode.IsPickup then pickedUp.Add(bestNode.ObjectiveId) |> ignore
                 cargo <- if bestNode.IsPickup then cargo + bestNode.Scu else cargo - bestNode.Scu
                 if cargo < 0 then cargo <- 0
                 currentLoc <- Some bestNode.Location
@@ -439,25 +496,20 @@ module RouteEngine =
         let evalRoute (r: RouteNode array) =
             let mutable valid = true
             let mutable c = currentCargo
-            let pUp = System.Collections.Generic.HashSet<Guid>()
-            let reqPickup = 
-                r |> Array.filter (fun x -> not x.IsPickup)
-                  |> Array.map (fun d -> d.MissionId, r |> Array.exists (fun p -> p.IsPickup && p.MissionId = d.MissionId))
-                  |> Map.ofArray
+            let pUp = System.Collections.Generic.HashSet<string>()
             let mutable totalTime = 0.0
             let mutable lastLoc = startLoc
             
             for i in 0 .. n - 1 do
                 let node = r.[i]
                 if valid then
-                    let isDropoffButNeedsPickup = 
-                        not node.IsPickup && 
-                        (reqPickup |> Map.tryFind node.MissionId |> Option.defaultValue false) && 
-                        not (pUp.Contains node.MissionId)
+                    let isDropoffAllowed = 
+                        node.RequiredPickupObjectiveIds 
+                        |> List.forall (fun reqId -> pUp.Contains reqId)
                     
-                    if isDropoffButNeedsPickup then valid <- false
+                    if not isDropoffAllowed then valid <- false
                     else
-                        if node.IsPickup then pUp.Add(node.MissionId) |> ignore
+                        if node.IsPickup then pUp.Add(node.ObjectiveId) |> ignore
                         c <- if node.IsPickup then c + node.Scu else c - node.Scu
                         if c < 0 then c <- 0
                         if c > capacity then valid <- false
@@ -481,7 +533,7 @@ module RouteEngine =
                             newRoute.[j - k] <- tmp
                         
                         match evalRoute newRoute with
-                        | Some cost when cost < bestCost - 0.1 -> // prevent float precision loop
+                        | Some cost when cost < bestCost - 0.1 ->
                             bestCost <- cost
                             currentRoute <- newRoute
                             improved <- true
@@ -493,9 +545,12 @@ module RouteEngine =
         let nodes = buildNodes appState
         if List.isEmpty nodes then None
         else
-            let startLoc = appState.PlayerLocation // В реальности может быть QuantumDestination
+            let startLoc = appState.PlayerLocation
             let optimizedNodes = 
-                let shipCapacity = appState.Ship |> Option.map (fun s -> s.CargoCapacity) |> Option.defaultValue 0
+                let shipCapacity = 
+                    match appState.Ship with
+                    | Some s when s.CargoCapacity > 0 -> s.CargoCapacity
+                    | _ -> 999_999 // Если корабль не выбран, считаем вместимость неограниченной
                 if nodes.Length <= 12 then
                     solveBranchAndBound nodes startLoc shipCapacity appState.CurrentCargoScu locations appState
                 else
@@ -503,9 +558,10 @@ module RouteEngine =
             
             let stops = groupActionsToStops optimizedNodes startLoc locations appState
             let totalTime = stops |> List.sumBy (fun s -> s.TravelTimeEstimate + s.ActionTimeEstimate)
+            let safeTotalTime = if Double.IsNaN(totalTime) || Double.IsInfinity(totalTime) then 0.0 else totalTime
             
             Some {
                 Stops = stops
-                TotalEstimatedTime = totalTime
+                TotalEstimatedTime = safeTotalTime
                 CurrentStopIndex = 0
             }
